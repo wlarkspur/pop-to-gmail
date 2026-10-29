@@ -12,8 +12,8 @@
 
 | 이름 | 값 |
 |---|---|
-| `POP_HOST` | mail.youngsan.com |
-| `POP_PORT` | 110 (비워두면 110) |
+| `POP_HOST` | 회사 메일 호스팅 서버 |
+| `POP_PORT` | PORT입력 (비워두면 110) |
 | `POP_USER` | 회사 메일 로그인 아이디 |
 | `POP_PASS` | 회사 메일 비밀번호 |
 | `GMAIL_USER` | 받을 Gmail 주소 |
