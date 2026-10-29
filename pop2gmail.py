@@ -244,6 +244,7 @@ def run() -> int:
 
     imported = skipped_old = skipped_dup = failed = label_failed = 0
     count = checked = 0
+    seen_dates: list[datetime] = []
     gmail = None
     try:
         count, _ = pop.stat()
@@ -256,6 +257,8 @@ def run() -> int:
             try:
                 headers = pop_headers(pop, num)
                 when = arrival_of(headers)
+                if when:
+                    seen_dates.append(when)
                 if when and when < cutoff:
                     skipped_old += 1
                     continue
@@ -302,6 +305,9 @@ def run() -> int:
         except Exception:
             pass
 
+    if seen_dates:
+        fmt = "%Y-%m-%d %H:%M UTC"
+        print(f"[참고] 확인한 메일 도착 시각 범위: {min(seen_dates).astimezone(timezone.utc):{fmt}} ~ {max(seen_dates).astimezone(timezone.utc):{fmt}}")
     print(f"[완료] 서버 메일 {count}통 중 최근 {checked}통 확인 / 새로 가져옴 {imported} / "
           f"이미 있음 {skipped_dup} / 기간 지나 건너뜀 {skipped_old} / 실패 {failed} / 라벨 실패 {label_failed}")
     return 1 if failed else 0
