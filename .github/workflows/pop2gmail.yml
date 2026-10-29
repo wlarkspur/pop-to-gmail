@@ -1,0 +1,29 @@
+name: 회사메일 → Gmail
+
+on:
+  schedule:
+    - cron: "*/30 * * * *"   # 30분마다 (GitHub 사정으로 몇 분 늦어질 수 있음)
+  workflow_dispatch: {}       # Actions 탭에서 수동 실행 가능
+
+permissions:
+  contents: read
+
+concurrency:
+  group: pop2gmail
+  cancel-in-progress: false
+
+jobs:
+  copy:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 새 메일 가져오기
+        run: python3 pop2gmail.py
+        env:
+          POP_HOST: ${{ secrets.POP_HOST }}
+          POP_PORT: ${{ secrets.POP_PORT }}
+          POP_USER: ${{ secrets.POP_USER }}
+          POP_PASS: ${{ secrets.POP_PASS }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
