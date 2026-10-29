@@ -11,7 +11,7 @@
   POP_PORT=110, POP_SSL=0               포트, SSL 여부 (SSL이 아니면 STARTTLS를 먼저 시도)
   GMAIL_USER, GMAIL_APP_PASSWORD        Gmail 주소와 앱 비밀번호 (필수)
   GMAIL_LABEL=회사메일                  가져온 메일에 붙일 Gmail 라벨 (빈 값이면 안 붙임)
-  LOOKBACK=50                           매번 확인할 최신 메일 개수
+  MAX_SCAN=400                          매번 헤더를 확인할 최대 메일 수 (넘으면 앞뒤 절반씩)
   MAX_AGE_HOURS=48                      서버 도착 시각이 이보다 오래된 메일은 건너뜀 (첫 실행 폭주 방지)
 """
 
@@ -226,7 +226,7 @@ def run() -> int:
     gmail_user = env("GMAIL_USER", required=True)
     gmail_pw = env("GMAIL_APP_PASSWORD", required=True).replace(" ", "")
     label = env("GMAIL_LABEL", "회사메일")
-    lookback = int(env("LOOKBACK", "50"))
+    max_scan = int(env("MAX_SCAN", "400"))
     cutoff = datetime.now(timezone.utc) - timedelta(hours=float(env("MAX_AGE_HOURS", "48")))
 
     try:
@@ -248,12 +248,17 @@ def run() -> int:
     gmail = None
     try:
         count, _ = pop.stat()
-        first = max(1, count - lookback + 1)
-        checked = count - first + 1
+        # 서버마다 메일 번호 순서(오래된 순/최신 순)가 달라서 순서를 가정하지 않는다
+        if count <= max_scan:
+            numbers = list(range(1, count + 1))
+        else:
+            half = max_scan // 2
+            numbers = list(range(1, half + 1)) + list(range(count - half + 1, count + 1))
+        checked = len(numbers)
 
         # 1) 후보 고르기: 헤더만 받아서 기간, Message-ID 확인
         candidates = []  # (번호, mid, 원본 ID 여부, 도착 시각)
-        for num in range(first, count + 1):
+        for num in numbers:
             try:
                 headers = pop_headers(pop, num)
                 when = arrival_of(headers)
@@ -267,6 +272,8 @@ def run() -> int:
             except Exception:
                 failed += 1
 
+        # 도착 시각 순으로 넣어서 Gmail에서도 순서가 맞게
+        candidates.sort(key=lambda c: c[3] or datetime.now(timezone.utc))
         if candidates:
             gmail = gmail_connect(gmail_user, gmail_pw)
             # 2) 이미 Gmail에 있는지 한 번에 확인 (전체보관함, 휴지통, 스팸)
@@ -308,7 +315,7 @@ def run() -> int:
     if seen_dates:
         fmt = "%Y-%m-%d %H:%M UTC"
         print(f"[참고] 확인한 메일 도착 시각 범위: {min(seen_dates).astimezone(timezone.utc):{fmt}} ~ {max(seen_dates).astimezone(timezone.utc):{fmt}}")
-    print(f"[완료] 서버 메일 {count}통 중 최근 {checked}통 확인 / 새로 가져옴 {imported} / "
+    print(f"[완료] 서버 메일 {count}통 중 {checked}통 확인 / 새로 가져옴 {imported} / "
           f"이미 있음 {skipped_dup} / 기간 지나 건너뜀 {skipped_old} / 실패 {failed} / 라벨 실패 {label_failed}")
     return 1 if failed else 0
 

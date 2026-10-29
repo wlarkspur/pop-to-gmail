@@ -125,7 +125,9 @@ class FakeGmail:
         pass
 
 
-def main():
+def main(reverse=False):
+    if reverse:
+        MAILS.reverse()  # 최신 메일이 1번인 서버
     server = socketserver.ThreadingTCPServer(("127.0.0.1", 0), FakePOP)
     threading.Thread(target=server.serve_forever, daemon=True).start()
     fake = FakeGmail()
@@ -138,12 +140,14 @@ def main():
     raws = [r for r, _ in fake.store]
     subjects = [next(s for s in (f"test {i}" for i in range(1, 10)) if f"Subject: {s}\r".encode() in r)
                 for r in raws]
-    assert subjects == ["test 2", "test 3", "test 4", "test 5", "test 6", "test 7", "test 9"], subjects
+    assert sorted(subjects) == ["test 2", "test 3", "test 4", "test 5", "test 6", "test 7", "test 9"], subjects
+    assert subjects[0] == "test 2" and subjects[-1] == "test 9", "도착 순서대로 넣지 않음"
+    raws = {s: r for s, r in zip(subjects, raws)}
     assert not DELETED, "서버 메일을 지우거나 되돌리면 안 됨"
-    assert raws[1].startswith(b"Message-ID: <") and raws[4].startswith(b"Message-ID: <"), "ID 생성 안 됨"
-    assert b"\r\n.leading dot line" in raws[0], "dot-stuffing 복원 오류"
-    assert b'name="r.xlsx"' in raws[2] and b"UEsDBAo=" in raws[2], "첨부 손실"
-    assert b"From: financial@hyauto.ru" in raws[0], "보낸 사람 손실"
+    assert raws["test 3"].startswith(b"Message-ID: <") and raws["test 6"].startswith(b"Message-ID: <"), "ID 생성 안 됨"
+    assert b"\r\n.leading dot line" in raws["test 2"], "dot-stuffing 복원 오류"
+    assert b'name="r.xlsx"' in raws["test 4"] and b"UEsDBAo=" in raws["test 4"], "첨부 손실"
+    assert b"From: financial@hyauto.ru" in raws["test 2"], "보낸 사람 손실"
     assert all(lbl == '"&1ozArLpUx3w-"' for _, lbl in fake.store), "라벨 인코딩 오류"
     assert {'"[Gmail]/Trash"', '"[Gmail]/Spam"'} <= set(fake.selected), "휴지통/스팸 확인 안 함"
 
@@ -158,4 +162,5 @@ def main():
 
 
 if __name__ == "__main__":
-    main()
+    import sys
+    main(reverse="--reverse" in sys.argv)
