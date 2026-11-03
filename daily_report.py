@@ -39,6 +39,7 @@ def parse_source(path: str) -> dict:
         if first is None:
             first = ws.cell(bal[-2], ctot).value  # 첫 시트의 '전일' 잔액 = 월초 잔액
         last = ws.cell(bal[-1], ctot).value       # 마지막 시트의 '오늘' 잔액 = 월말 잔액
+        accounts = {str(ws.cell(hdr, c).value).strip(): ws.cell(bal[-1], c).value or 0 for c in range(c0, ctot)}
         sec = None
         for r in range(hdr + 1, ws.max_row + 1):
             b = str(ws.cell(r, 2).value or "").strip().lower()
@@ -61,7 +62,8 @@ def parse_source(path: str) -> dict:
         "일별 Total 합과 일치": all(abs(got[k] - sheet_tot[k]) < 0.01 for k in got),
         "잔액 흐름 일치": first is not None and abs(first + got["in"] - got["out"] - last) < 0.01,
     }
-    return {"items": items, "in": got["in"], "out": got["out"], "open": first, "close": last, "checks": checks}
+    return {"items": items, "in": got["in"], "out": got["out"], "open": first, "close": last, "checks": checks,
+            "accounts": accounts}  # 계좌별 월말 잔액 (마지막 시트 머리글 이름 그대로)
 
 
 # ---------- 분류 ----------

@@ -61,11 +61,25 @@ class Book:
     def value(self, sheet, ref):
         return self.formula[sheet][ref].value
 
-    def set(self, sheet, ref, value):
-        if self.is_formula(sheet, ref):
+    def set(self, sheet, ref, value, like: str | None = None):
+        """값 쓰기. '='로 시작하는 글자는 수식으로 씀 (빈 칸에만). like = 서식을 빌려올 칸 (새로 채우는 행)."""
+        if self.is_formula(sheet, ref) and not (isinstance(value, str) and value.startswith("=")):
             raise ValueError(f"{sheet}!{ref}는 수식 칸이라 값으로 덮지 않음")
         p = self._x(sheet)
-        self.xml[p] = _put(self.xml[p], ref, value)
+        x = _put(self.xml[p], ref, value if not (isinstance(value, str) and value.startswith("=")) else None)
+        style = None
+        if like:
+            m = re.search(r'<c r="%s"[^>]*? s="(\d+)"' % like, x)
+            style = m.group(1) if m else None
+        m = re.search(r'<c r="%s"((?: [^>]*?)?)(/>|>(.*?)</c>)' % ref, x, re.S)
+        cell = m.group(0)
+        if style:
+            cell = re.sub(r' s="\d+"', "", cell, count=1).replace(f'<c r="{ref}"', f'<c r="{ref}" s="{style}"', 1)
+        if isinstance(value, str) and value.startswith("="):
+            from xml.sax.saxutils import escape as esc
+            sm = re.search(r' s="\d+"', cell)
+            cell = f'<c r="{ref}"{sm.group(0) if sm else ""}><f>{esc(value[1:])}</f></c>'
+        self.xml[p] = x[:m.start()] + cell + x[m.end():]
         self.log.append((sheet, ref, value))
 
     def save(self, dst: str):
@@ -160,7 +174,8 @@ def fill_cash(b: Book, balances: dict):
     b.set(S11, "F8", balances["cash"])
     b.set(S11, "D9", balances["woori"])
     b.set(S11, "D10", balances["entb"])
-    b.set(S11, "D11", balances["spb"])
+    spb = balances["spb"]  # 양식은 '=계좌+법인카드' 수식 칸이라 같은 방식으로 씀
+    b.set(S11, "D11", "=" + "+".join(f"{x:.2f}" for x in (spb if isinstance(spb, (list, tuple)) else [spb])))
 
 
 def read_daily_sheet(path: str, sheet: str) -> dict:
@@ -177,3 +192,128 @@ def read_daily_sheet(path: str, sheet: str) -> dict:
             cats.append(i)
     out = round(sum(x["amount"] for x in items if x["kind"] == "out"), 2)
     return {"items": items, "cats": cats, "out": out, "in": round(sum(x["amount"] for x in items if x["kind"] == "in"), 2)}
+
+
+S9, S12, S13, S14 = "9. 법인 차입현황", "12. 외상매출금명세서", "13. 외상매입금명세서", "14. 재고자산명세서"
+
+
+def read_ostatki(path: str, y: int) -> dict:
+    """Конечные остатки 그해 시트를 구역 번호별 {제목, 줄[(이름, 루블, 외화, 통화)]}로."""
+    ws = openpyxl.load_workbook(path, data_only=True)[str(y)]
+    secs, cur = {}, None
+    for r in range(1, ws.max_row + 1):
+        a, bv = ws.cell(r, 1).value, ws.cell(r, 2).value
+        if isinstance(a, str) and re.fullmatch(r"\d+\.", a.strip()):
+            cur = {"title": str(bv or "").strip(), "rows": [], "row": r}
+            secs[int(a.strip()[:-1])] = cur
+            continue
+        if cur and bv:
+            cur["rows"].append((str(bv).strip(), ws.cell(r, 3).value, ws.cell(r, 4).value, ws.cell(r, 5).value, r))
+    secs["_ws"] = ws
+    return secs
+
+
+def fill_ostatki(b: Book, ost: dict, y: int, m: int) -> list[str]:
+    """9/12/13/14번. 양식에 없는 새 거래처/대출은 빈 다음 행에 추가하고 '확인 필요'로 돌려줌."""
+    notes = []
+    ws = ost["_ws"]
+    by_title = [(v["title"].lower(), v) for k, v in ost.items() if k != "_ws"]  # 같은 제목 구역이 여럿 있음
+
+    def sec(prefix, nth=0):
+        hits = [v for t, v in by_title if t.startswith(prefix)]
+        hits.sort(key=lambda v: v["row"])
+        return hits[nth] if len(hits) > nth else None
+
+    # 14번 재고: 기타자재 기초/입고/출고, 폴리프로필렌 금액
+    mat = sec("прочие материалы")
+    vals = {n.strip().split()[0]: v for n, v, *_ in mat["rows"]}
+    b.set(S14, "H12", vals["начальный"])
+    b.set(S14, "N12", vals["приход"])
+    b.set(S14, "T12", vals["расход"])
+    b.set(S14, "D8", f"{y}-{m:02d}-{calendar.monthrange(y, m)[1]:02d}")
+    pp = {}
+    for r in range(mat["row"], mat["row"] + 6):
+        g = str(ws.cell(r, 7).value or "")
+        if "M7392T" in g:
+            pp["T"] = (ws.cell(r, 9).value, ws.cell(r + 1, 9).value)
+        if "M7392USK" in g:
+            pp["USK"] = (ws.cell(r, 9).value, ws.cell(r + 1, 9).value)
+    b.set(S14, "H10", pp["T"][0])
+    b.set(S14, "H11", pp["USK"][0])
+    if b.value(S14, "X10") not in (pp["T"][1], str(pp["T"][1])):
+        b.set(S14, "X10", pp["T"][1])
+    x11 = b.value(S14, "X11")
+    if float(x11 or 0) != float(pp["USK"][1] or 0):
+        notes.append(f"14번 X11 수량 {x11} ≠ Остатки {pp['USK'][1]} (양식 값 유지, 확인 필요)")
+
+    # 12번 매출채권: 기존 행(AVT 임대) 유지, 새 채권은 빈 행에 추가
+    ar = sec("дебиторская")
+    known = sum(float(b.value(S12, f"F{r}") or 0) for r in range(7, 35) if isinstance(b.value(S12, f"F{r}"), (int, float, str)) and str(b.value(S12, f"F{r}")).replace(".", "", 1).isdigit())
+    first_free = next(r for r in range(7, 35) if b.value(S12, f"F{r}") in (None, ""))
+    for name, rub, fx, cur, _ in ar["rows"]:
+        if name.lower().startswith("итого") or not rub:
+            continue
+        if any(str(b.value(S12, f"C{r}") or "").strip() == name for r in range(7, 35)):
+            continue  # 이미 넣은 채권
+        if "АВТОТОР" in name:
+            if abs(rub - known) > 0.01:
+                notes.append(f"12번 AVT 임대 채권 Остатки {rub:,.2f} ≠ 양식 {known:,.2f} (확인 필요)")
+            continue
+        r = first_free
+        first_free += 1
+        b.set(S12, f"C{r}", name, like="C11")
+        b.set(S12, f"D{r}", "RUB", like="D11")
+        b.set(S12, f"E{r}", f"=$L$1*F{r}", like="E11")
+        b.set(S12, f"F{r}", rub, like="F11")
+        b.set(S12, f"L{r}", (f"{fx:,.2f} {cur}" if fx else "") + " (새 채권: 발생일, 계정, 비고 확인 필요)", like="L11")
+        notes.append(f"12번 {r}행에 새 매출채권 추가: {name} {rub:,.2f} RUB - 발생일/비고 확인 필요")
+
+    # 13번 매입채무 (HDC, YSG): 외화는 그대로, 장부금액(RUB)만 갱신
+    ap = sec("кредиторская задолженность")
+    for name, rub, fx, cur, _ in ap["rows"]:
+        key = "HDC" if "hyunday" in name.lower() else "YSG" if "youngsan" in name.lower() else None
+        if not key:
+            continue
+        r = 7 if key == "HDC" else 8
+        b.set(S13, f"G{r}", rub)
+        if abs(float(b.value(S13, f"F{r}") or 0) - (fx or 0)) > 0.005:
+            b.set(S13, f"F{r}", fx)
+            notes.append(f"13번 {key} 외화금액 변경 {fx:,.2f} (확인 필요)")
+
+    # 9번 단기차입: 대출처별 합계로 대조, 늘어난 만큼만 새 행 추가 (금액 쪼개기는 양식 방식 유지)
+    st = sec("задолженность по краткосрочным займам")
+    lend = lambda n: "KLD" if ("КЛД" in n or n.upper() == "KLD") else "ELIAS" if ("ЭЛИАС" in n or "ELIAS" in n.upper()) \
+        else "BYUN" if ("Пён" in n or "변용필" in n) else "JSM" if "Чжон" in n else n
+    tmpl, free = {}, None
+    for r in range(32, 45):
+        v, k = b.value(S9, f"E{r}"), str(b.value(S9, f"K{r}") or "")
+        parts = [float(x) for x in re.findall(r"[\d.]+", v)] if isinstance(v, str) and v.startswith("=") else \
+            [float(v)] if isinstance(v, (int, float)) or (isinstance(v, str) and v.strip().replace(".", "", 1).isdigit()) else []
+        if parts:
+            tmpl.setdefault(lend(k), []).extend(parts)
+        elif free is None:
+            free = r
+    srcs = {}
+    for name, rub, *_ in st["rows"]:
+        if not name.lower().startswith("итого") and rub:
+            srcs.setdefault(lend(name), []).append((name, float(rub)))
+    for who, loans in srcs.items():
+        have = list(tmpl.get(who, []))
+        if abs(sum(x for _, x in loans) - sum(have)) < 0.01:
+            continue
+        if who == "JSM":
+            notes.append(f"9번: {loans[0][0]} {loans[0][1]:,.0f} RUB 행이 양식에 없음 (기존 양식 오류, 고치지 않음)")
+            continue
+        for name, rub in loans:
+            if rub in have:
+                have.remove(rub)
+                continue
+            date = re.search(r"(\d\d)\.(\d\d)\.(\d{4})", name)
+            b.set(S9, f"E{free}", rub, like="E35")
+            b.set(S9, f"F{free}", 0.01 if who == "KLD" else None, like="F35")
+            b.set(S9, f"G{free}", f"{date.group(3)}.{date.group(2)}.{date.group(1)}" if date else None, like="G35")
+            b.set(S9, f"K{free}", {"KLD": "KLD", "ELIAS": "ELIAS RUS"}.get(who, name), like="K35")
+            b.set(S9, f"M{free}", "새 대출 (만기 확인 필요)", like="M35")
+            notes.append(f"9번 {free}행에 새 단기차입 추가: {name} {rub:,.0f} RUB - 만기 확인 필요")
+            free += 1
+    return notes
