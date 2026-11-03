@@ -64,15 +64,42 @@ def irina_report(y: int, m: int, tmp: str) -> dict:
     return out
 
 
-def apply_overrides(s, y: int, m: int, src: dict) -> list[str]:
-    """드라이브 '업무 자동화/gamagam_overrides.json'에 적힌 원자료 수정분을 받은 첨부에 덮어씀 (입력 파일만, 양식은 그대로)."""
+def spb_statements(y: int, m: int, tmp: str) -> list[str]:
+    """'Обороты по банку СПБ за MM/YYYY' 메일의 은행 명세서 첨부 (가장 최근 메일)."""
+    conn = imaplib.IMAP4_SSL("imap.gmail.com", 993)
+    conn.login(os.environ["GMAIL_USER"], os.environ["GMAIL_APP_PASSWORD"])
+    conn.select(_imap_quote(gmail_folders(conn)[0]), readonly=True)
+    _, data = conn.uid("SEARCH", "X-GM-RAW", _imap_quote(f"from:financial@hyauto.ru filename:statement after:{y}/{m:02d}/15"))
+    best = None
+    for uid in (data[0].split() if data and data[0] else []):
+        _, msg = conn.uid("FETCH", uid, "(RFC822)")
+        mm = email.message_from_bytes(msg[0][1])
+        subj = str(email.header.make_header(email.header.decode_header(mm["Subject"] or "")))
+        when = parsedate_to_datetime(mm["Date"])
+        if "СПБ" in subj.upper() and f"{m:02d}/{y}" in subj and (best is None or when > best[0]):
+            best = (when, mm)
+    conn.logout()
+    paths = []
+    if best:
+        for i, part in enumerate(p for p in best[1].walk() if p.get_filename()):
+            paths.append(f"{tmp}/spb{i}.xlsx")
+            open(paths[-1], "wb").write(part.get_payload(decode=True))
+    return paths
+
+
+def load_overrides(s, y: int, m: int) -> dict:
     import json
     oid = find_by_name(s, "gamagam_overrides.json", daily_job.AUTO_FOLDER)
     if not oid:
-        return []
+        return {}
     r = s.get(f"{fx_job.API}/{oid}", params={"alt": "media", "supportsAllDrives": "true"})
     r.raise_for_status()
-    ov = json.loads(r.content.decode("utf-8")).get("HAS", {}).get(f"{y}-{m:02d}", {})
+    return json.loads(r.content.decode("utf-8")).get("HAS", {}).get(f"{y}-{m:02d}", {})
+
+
+def apply_overrides(s, y: int, m: int, src: dict) -> list[str]:
+    """드라이브 '업무 자동화/gamagam_overrides.json'에 적힌 원자료 수정분을 받은 첨부에 덮어씀 (입력 파일만, 양식은 그대로)."""
+    ov = load_overrides(s, y, m)
     notes = []
     for key, cells in ov.items():
         if key not in src:
@@ -127,11 +154,25 @@ def main() -> int:
         notes = list(fixes)
         if acc:
             g = lambda k: round(next((v for n, v in acc.items() if k in n.upper()), 0), 2)
-            h.fill_cash(b, {"cash": g("CASH"), "woori": g("WOORI"), "entb": g("ENTB"), "spb": g("SPB")})
-            notes.append("11번 현금시재표: Irina 월말 Cash Daily Report 계좌별 잔액으로 채움 - 은행 자료(SPB PDF 등)와 대사 필요")
+            spb = g("SPB")
+            st = spb_statements(y, m, tmp)
+            if st:
+                vals = h.spb_balances(st)
+                same = abs(sum(vals) - spb) < 0.01
+                notes.append(f"11번 SPB: 은행 명세서 기말잔액 {' + '.join(f'{v:,.2f}' for v in vals)} = {sum(vals):,.2f}"
+                             + (" (Daily Report와 일치)" if same else f" - Daily Report {spb:,.2f}와 다름, 명세서 값 사용 (확인 필요)"))
+                spb = vals
+            else:
+                notes.append("11번 SPB: 은행 명세서 메일을 못 찾아 Daily Report 잔액 사용 (확인 필요)")
+            h.fill_cash(b, {"cash": g("CASH"), "woori": g("WOORI"), "entb": g("ENTB"), "spb": spb})
+            notes.append("11번 Woori, ENTB, 현금: Irina 월말 Cash Daily Report 잔액 (은행 캡처와 대사는 안 함)")
         else:
             notes.append("11번 현금시재표: 월말 Cash Daily Report를 못 찾아 비워 둠 (확인 필요)")
         notes += h.fill_ostatki(b, h.read_ostatki(src["ost"], y), y, m)
+        out_ov = load_overrides(s, y, m).get("out", {})
+        if out_ov:
+            done = h.apply_out_overrides(b, out_ov)
+            notes.append(f"사용자 지정 칸 {len(done)}개 반영: {', '.join(done)}")
         b.save(f"{tmp}/out.xlsx")
         daily_job._upload(s, out_id, f"{tmp}/out.xlsx")
     print(f"{y}-{m:02d} HAS 가마감: {len(b.log)}칸, 확인 사항 {len(notes)}건")

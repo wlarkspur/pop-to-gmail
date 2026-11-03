@@ -265,7 +265,7 @@ def fill_ostatki(b: Book, ost: dict, y: int, m: int) -> list[str]:
         b.set(S12, f"D{r}", "RUB", like="D11")
         b.set(S12, f"E{r}", f"=$L$1*F{r}", like="E11")
         b.set(S12, f"F{r}", rub, like="F11")
-        b.set(S12, f"L{r}", (f"{fx:,.2f} {cur}" if fx else "") + " (새 채권: 발생일, 계정, 비고 확인 필요)", like="L11")
+        b.set(S12, f"L{r}", f"{fx:,.2f} {cur}" if fx else "", like="L11")
         notes.append(f"12번 {r}행에 새 매출채권 추가: {name} {rub:,.2f} RUB - 발생일/비고 확인 필요")
 
     # 13번 매입채무 (HDC, YSG): 외화는 그대로, 장부금액(RUB)만 갱신
@@ -297,12 +297,9 @@ def fill_ostatki(b: Book, ost: dict, y: int, m: int) -> list[str]:
     for name, rub, *_ in st["rows"]:
         if not name.lower().startswith("итого") and rub:
             srcs.setdefault(lend(name), []).append((name, float(rub)))
-    for who, loans in srcs.items():
+    for who, loans in sorted(srcs.items(), key=lambda kv: kv[0] not in tmpl):  # 양식에 있던 대출처 먼저
         have = list(tmpl.get(who, []))
         if abs(sum(x for _, x in loans) - sum(have)) < 0.01:
-            continue
-        if who == "JSM":
-            notes.append(f"9번: {loans[0][0]} {loans[0][1]:,.0f} RUB 행이 양식에 없음 (기존 양식 오류, 고치지 않음)")
             continue
         for name, rub in loans:
             if rub in have:
@@ -310,10 +307,53 @@ def fill_ostatki(b: Book, ost: dict, y: int, m: int) -> list[str]:
                 continue
             date = re.search(r"(\d\d)\.(\d\d)\.(\d{4})", name)
             b.set(S9, f"E{free}", rub, like="E35")
-            b.set(S9, f"F{free}", 0.01 if who == "KLD" else None, like="F35")
+            b.set(S9, f"F{free}", 0.01 if who == "KLD" else 0 if "беспроцент" in name else None, like="F35")
             b.set(S9, f"G{free}", f"{date.group(3)}.{date.group(2)}.{date.group(1)}" if date else None, like="G35")
-            b.set(S9, f"K{free}", {"KLD": "KLD", "ELIAS": "ELIAS RUS"}.get(who, name), like="K35")
-            b.set(S9, f"M{free}", "새 대출 (만기 확인 필요)", like="M35")
+            b.set(S9, f"K{free}", {"KLD": "KLD", "ELIAS": "ELIAS RUS", "JSM": "정석민 과장", "BYUN": "변용필 상무"}.get(who, name), like="K35")
+            b.set(S9, f"M{free}", "개인 Loan, 무이자" if "беспроцент" in name else "", like="M36")
             notes.append(f"9번 {free}행에 새 단기차입 추가: {name} {rub:,.0f} RUB - 만기 확인 필요")
             free += 1
     return notes
+
+
+def apply_out_overrides(b: Book, cells: dict) -> list[str]:
+    """사용자가 정한 결과 칸 값 (gamagam_overrides.json의 out). {"시트!칸": 값 또는 {"value","type":"date","like"}}"""
+    import datetime as _dt
+    done = []
+    for ref, v in cells.items():
+        if ref.startswith("_"):
+            continue
+        sheet, cell = ref.split("!")
+        like = None
+        if isinstance(v, dict):
+            like = v.get("like")
+            if v.get("type") == "date":
+                d = _dt.date.fromisoformat(v["value"])
+                v = (d - _dt.date(1899, 12, 30)).days
+            else:
+                v = v.get("value")
+        b.set(sheet, cell, v, like=like)
+        done.append(ref)
+    return done
+
+
+def spb_balances(paths: list[str]) -> list[float]:
+    """SPB 은행 명세서(xlsx)들의 'Исходящий остаток'(기말 잔액). 큰 것(계좌) 먼저."""
+    vals = []
+    for p in paths:
+        ws = openpyxl.load_workbook(p, data_only=True).worksheets[0]
+        got = None
+        for row in ws.iter_rows():
+            for c in row:
+                if isinstance(c.value, str) and "исходящий остаток" in c.value.lower():
+                    right = [x.value for x in row if x.column > c.column and isinstance(x.value, (int, float))]
+                    below = ws.cell(c.row + 1, c.column).value
+                    got = right[0] if right else below if isinstance(below, (int, float)) else None
+                    if isinstance(got, str):
+                        got = float(got.replace(" ", "").replace(",", "."))
+            if got is not None:
+                break
+        if got is None:
+            raise RuntimeError(f"{p}: 'Исходящий остаток'을 못 찾음")
+        vals.append(round(float(got), 2))
+    return sorted(vals, reverse=True)
