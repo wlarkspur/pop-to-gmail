@@ -35,7 +35,7 @@ def irina_report(y: int, m: int, tmp: str) -> dict:
     conn.select(_imap_quote(gmail_folders(conn)[0]), readonly=True)
     q = f"from:financial@hyauto.ru subject:HAS has:attachment after:{y}/{m:02d}/15"  # IMAP 검색은 영문만
     _, data = conn.uid("SEARCH", "X-GM-RAW", _imap_quote(q))
-    best = None
+    found = {}  # 첨부 종류별로 가장 늦게 받은 것 (정정 메일에 일부 첨부만 다시 오는 경우)
     for uid in (data[0].split() if data and data[0] else []):
         _, msg = conn.uid("FETCH", uid, "(RFC822)")
         mm = email.message_from_bytes(msg[0][1])
@@ -43,25 +43,24 @@ def irina_report(y: int, m: int, tmp: str) -> dict:
         subj = str(email.header.make_header(email.header.decode_header(mm["Subject"] or "")))
         if f"{m:02d}/{y}" not in subj or "отчет" not in subj.lower():
             continue
-        if best is None or when > best[0]:
-            best = (when, mm)
+        for part in mm.walk():
+            fn = part.get_filename()
+            if not fn:
+                continue
+            fn = str(email.header.make_header(email.header.decode_header(fn)))
+            key = "monthly" if "monthly" in fn.lower() else "fs" if "재무제표" in fn else "ost" if "остатки" in fn.lower() else None
+            if key and (key not in found or when > found[key][0]):
+                found[key] = (when, part.get_payload(decode=True))
     conn.logout()
-    if not best:
-        raise RuntimeError(f"'Отчет HAS за {m:02d}/{y}' 메일을 아직 못 찾음")
-    out = {}
-    for part in best[1].walk():
-        fn = part.get_filename()
-        if not fn:
-            continue
-        fn = str(email.header.make_header(email.header.decode_header(fn)))
-        key = "monthly" if "monthly" in fn.lower() else "fs" if "재무제표" in fn else "ost" if "остатки" in fn.lower() else None
-        if key:
-            out[key] = f"{tmp}/{key}.xlsx"
-            open(out[key], "wb").write(part.get_payload(decode=True))
-    missing = {"monthly", "fs", "ost"} - set(out)
+    missing = {"monthly", "fs", "ost"} - set(found)
     if missing:
         raise RuntimeError(f"첨부가 모자람: {missing}")
-    out["when"] = best[0]
+    out = {}
+    for key, (when, data_) in found.items():
+        out[key] = f"{tmp}/{key}.xlsx"
+        open(out[key], "wb").write(data_)
+    out["when"] = max(w for w, _ in found.values())
+    out["dates"] = {k: w for k, (w, _) in found.items()}
     return out
 
 
