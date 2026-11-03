@@ -1,0 +1,22 @@
+name: 시계 (외부 예약 서비스가 5분마다 호출)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  actions: write   # 다른 작업에 실행 신호를 보내기 위해
+  contents: read
+
+concurrency:
+  group: tick
+  cancel-in-progress: false
+
+jobs:
+  tick:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 tick.py
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}

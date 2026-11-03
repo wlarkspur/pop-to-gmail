@@ -1,0 +1,40 @@
+name: 환율 (CBR EUR → 환율!.xls)
+
+on:
+  schedule:
+    - cron: "17 4 1-3 * *"   # 매월 1~3일 04:17 UTC (칼리닌그라드 06:17). 이미 채워졌으면 그냥 끝남
+  workflow_dispatch:
+    inputs:
+      month:
+        description: "채울 달 (예: 2026-10). 비우면 지난달"
+        required: false
+
+permissions:
+  contents: read
+
+concurrency:
+  group: fx-cbr
+  cancel-in-progress: false
+
+jobs:
+  fill:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - name: 설정 확인
+        id: check
+        run: |
+          if [ -z "$SA" ]; then echo "GDRIVE_SA_JSON 없음 - 건너뜀"; echo "skip=1" >> "$GITHUB_OUTPUT"; fi
+        env:
+          SA: ${{ secrets.GDRIVE_SA_JSON }}
+      - name: 패키지
+        if: steps.check.outputs.skip != '1'
+        run: pip install -q xlrd==2.0.1 olefile==0.47 google-auth==2.35.0 requests==2.32.3
+      - name: 지난달 환율 채우기
+        if: steps.check.outputs.skip != '1'
+        run: python3 fx_job.py ${{ github.event.inputs.month }}
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}

@@ -1,0 +1,31 @@
+name: 제어판 승인 메일 발송
+
+on:
+  schedule:
+    - cron: "*/5 5-19 * * *"   # 칼리닌그라드 07~21시, 5분마다 제어판 승인 요청 확인
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+concurrency:
+  group: notice-send
+  cancel-in-progress: false
+
+jobs:
+  send:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - name: 패키지
+        run: pip install -q google-auth==2.35.0 requests==2.32.3 xlrd==2.0.1 olefile==0.47
+      - name: 승인 요청 처리
+        run: python3 notice_queue.py
+        env:
+          GDRIVE_SA_JSON: ${{ secrets.GDRIVE_SA_JSON }}
+          NOTICE_PASSWORD: ${{ secrets.NOTICE_PASSWORD }}
+          GMAIL_USER: ${{ secrets.GMAIL_USER }}
+          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          POP_USER: ${{ secrets.POP_USER }}
+          POP_PASS: ${{ secrets.POP_PASS }}
