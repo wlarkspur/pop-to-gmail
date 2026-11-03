@@ -33,13 +33,16 @@ def irina_report(y: int, m: int, tmp: str) -> dict:
     conn = imaplib.IMAP4_SSL("imap.gmail.com", 993)
     conn.login(os.environ["GMAIL_USER"], os.environ["GMAIL_APP_PASSWORD"])
     conn.select(_imap_quote(gmail_folders(conn)[0]), readonly=True)
-    q = f'from:financial@hyauto.ru subject:"HAS за {m:02d}/{y}" has:attachment'
+    q = f"from:financial@hyauto.ru subject:HAS has:attachment after:{y}/{m:02d}/15"  # IMAP 검색은 영문만
     _, data = conn.uid("SEARCH", "X-GM-RAW", _imap_quote(q))
     best = None
     for uid in (data[0].split() if data and data[0] else []):
         _, msg = conn.uid("FETCH", uid, "(RFC822)")
         mm = email.message_from_bytes(msg[0][1])
         when = parsedate_to_datetime(mm["Date"])
+        subj = str(email.header.make_header(email.header.decode_header(mm["Subject"] or "")))
+        if f"{m:02d}/{y}" not in subj or "отчет" not in subj.lower():
+            continue
         if best is None or when > best[0]:
             best = (when, mm)
     conn.logout()
