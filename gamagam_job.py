@@ -65,6 +65,30 @@ def irina_report(y: int, m: int, tmp: str) -> dict:
     return out
 
 
+def apply_overrides(s, y: int, m: int, src: dict) -> list[str]:
+    """드라이브 '업무 자동화/gamagam_overrides.json'에 적힌 원자료 수정분을 받은 첨부에 덮어씀 (입력 파일만, 양식은 그대로)."""
+    import json
+    oid = find_by_name(s, "gamagam_overrides.json", daily_job.AUTO_FOLDER)
+    if not oid:
+        return []
+    r = s.get(f"{fx_job.API}/{oid}", params={"alt": "media", "supportsAllDrives": "true"})
+    r.raise_for_status()
+    ov = json.loads(r.content.decode("utf-8")).get("HAS", {}).get(f"{y}-{m:02d}", {})
+    notes = []
+    for key, cells in ov.items():
+        if key not in src:
+            continue
+        wb = openpyxl.load_workbook(src[key])
+        for ref, val in cells.items():
+            if ref.startswith("_"):
+                continue
+            sheet, cell = ref.split("!")
+            wb[sheet][cell] = val
+        wb.save(src[key])
+        notes.append(f"원자료 수정분 적용: {key} {', '.join(k for k in cells if not k.startswith('_'))} ({cells.get('_출처', '')})")
+    return notes
+
+
 def find_by_name(s, name: str, folder: str | None = None):
     q = f"name = '{name}' and trashed = false" + (f" and '{folder}' in parents" if folder else "")
     r = s.get(fx_job.API, params={"q": q, "fields": "files(id,name)", "supportsAllDrives": "true", "includeItemsFromAllDrives": "true"})
@@ -85,6 +109,7 @@ def main() -> int:
         raise RuntimeError(f"드라이브 파일 없음 (결과 자리 {bool(out_id)}, 전월 양식 {bool(tmpl_id)}) - 결과 자리는 처음 한 번 만들어 둬야 함")
     with tempfile.TemporaryDirectory() as tmp:
         src = irina_report(y, m, tmp)
+        fixes = apply_overrides(s, y, m, src)
         daily_job._download(s, tmpl_id, f"{tmp}/tmpl.xlsx")
         dr_id = find_by_name(s, f"@가마감용 DailyReport_{y}_HAS.xlsx", DR_FOLDER)
         daily_job._download(s, dr_id, f"{tmp}/dr.xlsx")
@@ -100,7 +125,7 @@ def main() -> int:
         h.fill_fs(b, src["fs"])
         h.fill_rates(b, y, m, j8, avg)
         h.fill_cashflow(b, m, old, j8, drs, FEE_CAT)
-        notes = []
+        notes = list(fixes)
         if acc:
             g = lambda k: round(next((v for n, v in acc.items() if k in n.upper()), 0), 2)
             h.fill_cash(b, {"cash": g("CASH"), "woori": g("WOORI"), "entb": g("ENTB"), "spb": g("SPB")})
