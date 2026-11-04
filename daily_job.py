@@ -89,7 +89,15 @@ def run(ent: str, y: int, m: int, s, overrides: dict) -> list[str]:
     if not fid:
         return [f"[{ent}] 드라이브에 '{name}' 파일이 없음 - 새해 파일은 처음 한 번 만들어 둬야 함 (Claude에게 요청)"]
     with tempfile.TemporaryDirectory() as tmp:
-        got = latest_attachment(y, m, base(y, m), f"{tmp}/src.xlsx")
+        # 메일에 없는 달(예: 회사메일 복사 시작 전)은 Claude가 정리해 둔 드라이브 원자료(JSON)를 씀
+        jid = find_file(s, AUTO_FOLDER, f"daily_source_{y}-{m:02d}_{ent}.json")
+        jsrc = None
+        if jid:
+            r = s.get(f"{fx_job.API}/{jid}", params={"alt": "media", "supportsAllDrives": "true"})
+            r.raise_for_status()
+            jsrc = json.loads(r.content.decode("utf-8"))
+            jsrc["checks"] = {"잔액 흐름 일치": abs(jsrc["open"] + jsrc["in"] - jsrc["out"] - jsrc["close"]) < 0.01}
+        got = (dt.datetime.now(KLD), False) if jsrc else latest_attachment(y, m, base(y, m), f"{tmp}/src.xlsx")
         if not got:
             late = dt.datetime.now(KLD).day >= 5  # 5일까지 안 오면 알림 (YSKD는 늦게 오는 편)
             return [f"[{ent}] {y}-{m:02d} Irina 리포트('{base(y, m)}') 메일을 아직 못 찾음" + (" - 5일까지 안 옴, 확인 필요" if late else "")]
@@ -103,7 +111,7 @@ def run(ent: str, y: int, m: int, s, overrides: dict) -> list[str]:
             return [f"[{ent}] 직전 달 '{dr.sheet_name(py, pm, ent)}' 시트가 없어 대기 - 직전 달 원자료를 먼저 넣어야 함 (확인 필요)"]
         if sheet in names:
             return [f"[{ent}] '{sheet}' 시트가 이미 있음 - 건너뜀" + (" (단, 월초에 정정본이 왔으니 확인 필요)" if corrected else "")]
-        src = dr.parse_source(f"{tmp}/src.xlsx")
+        src = jsrc or dr.parse_source(f"{tmp}/src.xlsx")
         if not all(src["checks"].values()):
             return [f"[{ent}] 원자료 검증 실패 {src['checks']} - 파일 안 바꿈, 확인 필요"]
         hist = dr.history(f"{tmp}/in.xlsx", ent)
