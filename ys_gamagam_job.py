@@ -2,7 +2,7 @@
 
 입력: 전월 '누적 마감_YSKD', '채권_채무_관리_YSKD' (양식), Irina 'отчет КЛД за MM/YYYY' 첨부 2개 (monthly_MM.YYYY, YSH KLD (RUB)),
       marina@ 'дебиторка КЛД MM/YYYY' 첨부(1C 채권채무 잔액), CBR EUR 환율(월평균, 월말).
-출력: 'YYYY년 M월_누적 마감_YSKD.xlsx', 'YYYY년 M월_채권_채무_관리_YSKD.xlsx', 'KLD 재무제표 (RUB) YY년M월.xlsx'
+출력: 'YS 손익보고/YY년/M월/' 폴더의 'YYYY년 M월_누적 마감_YSKD.xlsx', 'YYYY년 M월_채권_채무_관리_YSKD.xlsx', 'KLD 재무제표 (RUB) YY년M월.xlsx'
       (서비스 계정은 파일을 새로 만들 수 없어 같은 이름의 빈 자리 파일이 미리 있어야 함. 없으면 그 파일만 건너뛰고 메일로 알림)
 사용: python3 ys_gamagam_job.py YYYY-MM
 """
@@ -26,7 +26,7 @@ import fx_job
 import ys_gamagam as g
 from pop2gmail import _imap_quote, gmail_folders
 
-YS_FOLDER = "1i2jZhYpQTYL4RFG3WZuK_gPUVsjsb2br"  # YS 손익보고
+YS_ROOT = "1cWKOKKi5XoaujmXltzPVjmtCSVOvDMOw"  # YS 손익보고 / 'YY년' / 'M월' / 파일 3개
 RU_MONTH = {1: "янв", 2: "фев", 3: "мар", 4: "апр", 5: "ма", 6: "июн", 7: "июл", 8: "авг", 9: "сен", 10: "окт", 11: "ноя", 12: "дек"}
 
 
@@ -79,17 +79,33 @@ def arap_raw(y: int, m: int, tmp: str) -> dict:
                              lambda f: "raw" if f.endswith(".xlsx") else None, tmp)
 
 
-def find_latest(s, pattern: str, before: tuple[int, int]):
-    """폴더 안에서 'YYYY년 M월_...' 이름 중 before(y, m)보다 앞선 가장 최근 달 파일 (id, y, m). 대상 월 자리 파일(빈 사본)은 제외."""
-    r = s.get(fx_job.API, params={"q": f"'{YS_FOLDER}' in parents and trashed = false", "fields": "files(id,name)",
+def _children(s, folder: str) -> list[dict]:
+    r = s.get(fx_job.API, params={"q": f"'{folder}' in parents and trashed = false", "fields": "files(id,name,mimeType)",
                                   "supportsAllDrives": "true", "includeItemsFromAllDrives": "true", "pageSize": "200"})
     r.raise_for_status()
-    best = None
-    for f in r.json()["files"]:
-        mt = re.match(r"(\d{4})년 (\d{1,2})월_" + re.escape(pattern) + r"\.xlsx$", f["name"])
-        if mt and (int(mt[1]), int(mt[2])) < before and (best is None or (int(mt[1]), int(mt[2])) > best[1:]):
-            best = (f["id"], int(mt[1]), int(mt[2]))
-    return best
+    return r.json()["files"]
+
+
+def month_folder(s, y: int, m: int, create: bool = False):
+    """'YS 손익보고/YY년/M월' 폴더 id (없으면 None)."""
+    yf = next((f["id"] for f in _children(s, YS_ROOT) if f["name"] == f"{y % 100}년"), None)
+    if not yf:
+        return None
+    return next((f["id"] for f in _children(s, yf) if f["name"] == f"{m}월"), None)
+
+
+def find_latest(s, pattern: str, before: tuple[int, int]):
+    """before(y, m)보다 앞선 가장 최근 달 폴더에서 'YYYY년 M월_<pattern>.xlsx' (id, y, m). 폴더가 없거나 파일이 없으면 더 앞 달로."""
+    y, m = before
+    for _ in range(12):
+        y, m = (y - 1, 12) if m == 1 else (y, m - 1)
+        fid = month_folder(s, y, m)
+        if not fid:
+            continue
+        for f in _children(s, fid):
+            if re.match(r"\d{4}년 \d{1,2}월_" + re.escape(pattern) + r"\.xlsx$", f["name"]):
+                return f["id"], y, m
+    return None
 
 
 def main() -> int:
@@ -97,8 +113,11 @@ def main() -> int:
     s = fx_job.drive()
     names = {"cum": f"{y}년 {m}월_누적 마감_YSKD.xlsx", "arap": f"{y}년 {m}월_채권_채무_관리_YSKD.xlsx",
              "kld": f"KLD 재무제표 (RUB) {y % 100}년{m}월.xlsx"}
-    out_ids = {k: daily_job.find_file(s, YS_FOLDER, n) for k, n in names.items()}
-    notes, lines = [], []
+    folder = month_folder(s, y, m)
+    out_ids = {k: (daily_job.find_file(s, folder, n) if folder else None) for k, n in names.items()}
+    if not folder:
+        notes_folder = f"드라이브 'YS 손익보고/{y % 100}년/{m}월' 폴더가 없어 결과를 올리지 못함 (전월 폴더 복사로 만들어 두고 다시 실행)"
+    notes, lines = ([notes_folder] if not folder else []), []
     with tempfile.TemporaryDirectory() as tmp:
         src = irina_report(y, m, tmp)
         raw = arap_raw(y, m, tmp)
@@ -143,7 +162,7 @@ def main() -> int:
         else:
             notes.append(f"'{names['kld']}' 자리 파일이 없어 올리지 못함")
     print(f"{y}-{m:02d} YSKD 가마감: 확인 사항 {len(notes)}건")
-    body = lines + ["", "확인 필요:"] + [f"- {x}" for x in notes] + ["", "다음 달을 위해: 드라이브 YS 손익보고 폴더에 다음 달 이름의 빈 자리 파일 3개(이번 달 파일 복사)를 만들어 둘 것"]
+    body = lines + ["", "확인 필요:"] + [f"- {x}" for x in notes] + ["", "다음 달을 위해: 드라이브 'YS 손익보고/YY년/다음 달' 폴더를 만들고 그 안에 다음 달 이름의 자리 파일 3개(이번 달 파일 복사)를 둘 것"]
     fx_job.mail(f"[가마감] YSKD {y}년 {m}월 초안", "\n".join(body))
     return 0
 
