@@ -1,0 +1,31 @@
+name: 러시아 생산 달력 저장 (ru_holidays.json)
+
+on:
+  workflow_dispatch:
+    inputs:
+      years:
+        description: "받을 연도 (예: 2026 2027). 비우면 올해, 내년"
+        required: false
+        default: ""
+  schedule:
+    - cron: "17 5 1 12 *"   # 매년 12월 1일: 내년 달력 받기 (정부 결정은 보통 9~10월 공표)
+
+permissions:
+  contents: write
+
+concurrency:
+  group: calendar
+  cancel-in-progress: false
+
+jobs:
+  calendar:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - run: python3 ru_calendar.py --update ${{ github.event.inputs.years }}
+      - run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+          git add ru_holidays.json
+          git diff --cached --quiet || git commit -m "ru_holidays.json 갱신" && git push
