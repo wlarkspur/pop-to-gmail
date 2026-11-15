@@ -20,14 +20,18 @@ def _cfg():
     return (t, c) if t and c else (None, None)
 
 
-def send(text: str) -> bool:
+def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> bool:
+    """buttons: [[(글자, callback_data), ...], ...] - 마지막 조각에만 붙임."""
     t, c = _cfg()
     if not t:
         return False
     try:
-        for i in range(0, max(len(text), 1), LIMIT):
-            r = requests.post(API.format(t, "sendMessage"), json={"chat_id": c, "text": text[i:i + LIMIT],
-                              "disable_web_page_preview": True}, timeout=20)
+        parts = [text[i:i + LIMIT] for i in range(0, max(len(text), 1), LIMIT)]
+        for k, part in enumerate(parts):
+            body = {"chat_id": c, "text": part, "disable_web_page_preview": True}
+            if buttons and k == len(parts) - 1:
+                body["reply_markup"] = {"inline_keyboard": [[{"text": a, "callback_data": b} for a, b in row] for row in buttons]}
+            r = requests.post(API.format(t, "sendMessage"), json=body, timeout=20)
             r.raise_for_status()
         return True
     except Exception as e:  # noqa: BLE001

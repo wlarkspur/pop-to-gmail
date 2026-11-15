@@ -96,11 +96,23 @@ MAILS = salary_notice.build(
     __import__("datetime").date(2026, 11, 2), __import__("datetime").date(2026, 11, 10))
 
 
-def run(key, test, password, cancel_ts=None):
+def run(key, test, password, cancel_ts=None, tg=False):
+    """tg=True: 제어판 파일 대신 텔레그램 입력(TG_CONFIRM, TG_CANCEL)으로 승인/취소."""
     SMTP_LOG.clear()
     q = {"notices": [{"key": key, "title": key, "created": "-", "status": "pending", "test": test,
                       "summary": [], "mails": copy.deepcopy(MAILS), "history": []}], "processed": []}
-    drive = FakeDrive(q, {"c1": confirm(key, password)}, [f"cancel_{key}_{cancel_ts}.json"] if cancel_ts else [])
+    os.environ.pop("TG_CONFIRM", None); os.environ.pop("TG_CANCEL", None)
+    if tg:
+        import hmac as _h
+        os.environ["TG_TOKEN"] = "123:test-token"
+        ts = "1793630000000"
+        mac = _h.new(b"123:test-token", f"notice|{password}|{key}|{ts}".encode(), hashlib.sha256).hexdigest()
+        os.environ["TG_CONFIRM"] = f"{key}|{ts}|{mac}"
+        if cancel_ts:
+            os.environ["TG_CANCEL"] = f"{key}|{cancel_ts}"
+        drive = FakeDrive(q, {}, [])
+    else:
+        drive = FakeDrive(q, {"c1": confirm(key, password)}, [f"cancel_{key}_{cancel_ts}.json"] if cancel_ts else [])
     fx_job.drive = lambda: drive
     fx_job.mail = lambda *a: None
     nq.process()
@@ -133,4 +145,26 @@ print(f"{'진짜 항목 + 맞는 비밀번호 + 승인 취소':<40} -> 상태 {s
 assert status == "pending" and not conns, "취소한 승인은 발송되면 안 됨"
 status, conns, sends = run("salary-20261110", False, "pw-정답", cancel_ts="1793629999000")
 assert status == "sent", "승인보다 먼저 한 취소는 새 승인을 막으면 안 됨"
+for tgname, key, test, pw, cts, want in [
+        ("텔레그램: 진짜 항목 + 틀린 비밀번호", "salary-20261110", False, "pw-오답", None, "wrong_password"),
+        ("텔레그램: 테스트 항목 + 맞는 비밀번호", "salary-20261110-test", True, "pw-정답", None, "test_ok"),
+        ("텔레그램: 진짜 항목 + 맞는 비밀번호 + 취소", "salary-20261110", False, "pw-정답", "1793630000500", "pending"),
+        ("텔레그램: 진짜 항목 + 맞는 비밀번호", "salary-20261110", False, "pw-정답", None, "sent")]:
+    status, conns, sends = run(key, test, pw, cancel_ts=cts, tg=True)
+    print(f"{tgname:<40} -> 상태 {status:<15} 회사 SMTP 접속 {len(conns)}회, 발송 {len(sends)}통")
+    assert status == want, tgname
+    if want in ("wrong_password", "pending"):
+        assert not conns and not sends
+    if want == "test_ok":
+        assert all(x[3] == (ME,) for x in sends)
+# 공개 입력에 예전 방식 hash(sha256)를 넣어도 통과하면 안 됨
+SMTP_LOG.clear()
+c = confirm("salary-20261110", "pw-정답")
+os.environ["TG_CONFIRM"] = f"{c['key']}|{c['ts']}|{c['hash']}"
+q = {"notices": [{"key": "salary-20261110", "title": "x", "created": "-", "status": "pending", "test": False,
+                  "summary": [], "mails": copy.deepcopy(MAILS), "history": []}], "processed": []}
+drive = FakeDrive(q, {}, []); fx_job.drive = lambda: drive; nq.process()
+assert drive.queue["notices"][0]["status"] == "wrong_password" and not SMTP_LOG, "텔레그램 입력은 봇 토큰 HMAC만 인정"
+print("텔레그램 입력에 sha256 hash를 넣으면 거부 (봇 토큰 HMAC만 인정)")
+os.environ.pop("TG_CONFIRM", None); os.environ.pop("TG_CANCEL", None); os.environ.pop("TG_TOKEN", None)
 print("모든 검증 통과: 테스트는 본인 주소로만, 틀린 비밀번호는 서버 접속 없음, 진짜 항목만 원래 수신자에게")

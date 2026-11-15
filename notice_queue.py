@@ -5,6 +5,9 @@
   hash = sha256("<비밀번호>|<key>|<ts>") - 비밀번호 원문은 어디에도 저장하지 않음, 확인은 여기(서버)에서만
 - process(): 처리 안 된 승인 요청마다 비밀번호 확인 -> 회사 메일로 발송 -> queue.json에 결과 기록 -> 결과 메일
 
+- 텔레그램 승인(2단계): 봇 웹훅(Cloudflare Worker)이 이 작업의 입력 TG_CONFIRM="key|ts|mac"으로 넘김, 취소는 TG_CANCEL="key|ts".
+  저장소가 공개라 실행 입력이 보일 수 있어서 mac = HMAC-SHA256(TG_TOKEN, "notice|비밀번호|key|ts") - 봇 토큰 없이는 비밀번호를 대입해 볼 수 없음.
+
 비밀번호는 GitHub Secret NOTICE_PASSWORD. 테스트 항목(test=true)은 3통을 본인(본인 회사 주소)에게만 보냄.
 """
 from __future__ import annotations
@@ -64,6 +67,9 @@ def add_notice(s, key: str, title: str, mails: list[dict], summary: list[str], t
     q["notices"] = [n for n in q["notices"] if n["key"] != key] + [item]
     q["notices"] = q["notices"][-20:]  # 최근 20건만
     save(s, q)
+    import tg
+    tg.send("\n".join([f"📨 발송 대기: {item['title']}", ""] + list(summary) + ["", f"[{key}]"]),
+            buttons=[[("✅ 승인", f"ok:{key}"), ("✖ 취소", f"no:{key}")]])
     return True
 
 
@@ -80,6 +86,14 @@ def _check(password: str, key: str, ts: str, h: str) -> bool:
     return hmac.compare_digest(want, (h or "").lower())
 
 
+def _check_tg(password: str, key: str, ts: str, mac: str) -> bool:
+    tok = os.environ.get("TG_TOKEN", "")
+    if not tok:
+        return False
+    want = hmac.new(tok.encode(), f"notice|{password}|{key}|{ts}".encode("utf-8"), hashlib.sha256).hexdigest()
+    return hmac.compare_digest(want, (mac or "").lower())
+
+
 def process() -> str:
     import salary_notice
     s = fx_job.drive()
@@ -94,6 +108,18 @@ def process() -> str:
             cancels[key] = max(cancels.get(key, 0), int(ts))
         except ValueError:
             pass
+    tg_cancel = os.environ.get("TG_CANCEL", "").strip()
+    if tg_cancel:
+        try:
+            key, ts = tg_cancel.split("|")
+            cancels[key] = max(cancels.get(key, 0), int(ts))
+            n = next((x for x in q["notices"] if x["key"] == key), None)
+            if n:
+                n["history"].append(f"{_now()} 텔레그램에서 승인 취소")
+                changed = True
+        except ValueError:
+            pass
+    confirms = []  # (처리 id, 승인 내용 dict | None, 파일 id | None)
     for f in _list_confirms(s):
         if f["id"] in q["processed"]:
             continue
@@ -111,9 +137,19 @@ def process() -> str:
         r = s.get(f"{fx_job.API}/{f['id']}", params={"alt": "media", "supportsAllDrives": "true"})
         r.raise_for_status()
         try:
-            c = json.loads(r.content.decode("utf-8"))
+            confirms.append(json.loads(r.content.decode("utf-8")))
         except ValueError:
             continue
+    tg_confirm = os.environ.get("TG_CONFIRM", "").strip()
+    if tg_confirm:
+        try:
+            key, ts, h = tg_confirm.split("|")
+            if cancels.get(key, 0) <= int(ts):
+                confirms.append({"key": key, "ts": ts, "hash": h, "via": "텔레그램"})
+                changed = True
+        except ValueError:
+            pass
+    for c in confirms:
         n = next((x for x in q["notices"] if x["key"] == c.get("key")), None)
         if not n:
             continue
@@ -122,7 +158,7 @@ def process() -> str:
             continue
         if not password:
             n["status"], msg = "error", "서버에 비밀번호(NOTICE_PASSWORD)가 설정되지 않음"
-        elif not _check(password, n["key"], str(c.get("ts")), c.get("hash")):
+        elif not (_check_tg if c.get("via") == "텔레그램" else _check)(password, n["key"], str(c.get("ts")), c.get("hash")):
             n["status"], msg = "wrong_password", "비밀번호가 맞지 않음 - 발송 안 함"
         elif n.get("test") or n["key"].endswith("-test"):  # 테스트: 본인(본인 회사 주소)에게만
             try:

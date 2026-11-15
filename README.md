@@ -85,4 +85,6 @@ x-rates가 기준일까지 반영 안 됐으면 30분 뒤 재시도, 12:00 회�
 - 시크릿 TG_TOKEN(봇 토큰), TG_CHAT_ID(내 채팅 id). 없으면 아무것도 안 함
 - 메일 알림(fx_job.mail)이 나가면 같은 내용을 텔레그램에도 보냄, 가마감 초안(HAS, YSKD)은 엑셀 파일도 첨부
 - 모든 워크플로 마지막에 실패 시 "⚠️ 실패: 작업 이름 + 실행 링크"를 보냄
-- 버튼 승인, 명령은 2단계 (웹훅 호스팅 필요)
+- 2단계 봇(bot/worker.js, Cloudflare Worker 'hasbot'): 명령(/status, /gamagam, /daily, /cbr, /salary, /meal)은 GitHub Actions 실행으로 넘김
+- 공지 대기 알림의 [승인] -> 비밀번호 답장 -> 봇이 메시지를 지우고 HMAC(TG_TOKEN, "notice|비밀번호|key|ts")만 notice_send 입력으로 넘김 (공개 저장소라 비밀번호 hash를 입력에 안 씀)
+- 배포: bot_deploy.yml (bot/ 수정 시 자동, 수동 실행 가능). 시크릿 CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, BOT_GH_TOKEN(이 저장소 Actions 쓰기 권한 토큰) 필요
