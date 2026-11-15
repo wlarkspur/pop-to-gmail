@@ -1,0 +1,22 @@
+name: 텔레그램 테스트
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  tg_test:
+    runs-on: ubuntu-latest
+    env:
+      TG_TOKEN: ${{ secrets.TG_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+    timeout-minutes: 3
+    steps:
+      - uses: actions/checkout@v4
+      - run: pip install -q requests==2.32.3
+      - run: |
+          test -n "$TG_TOKEN" || { echo "TG_TOKEN 시크릿 없음"; exit 1; }
+          test -n "$TG_CHAT_ID" || { echo "TG_CHAT_ID 시크릿 없음"; exit 1; }
+          python3 -c "import tg,sys; sys.exit(0 if tg.send('✅ GitHub 자동화에서 보낸 테스트 메시지 - 시크릿 설정 정상') else 1)"
