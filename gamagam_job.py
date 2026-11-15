@@ -175,6 +175,8 @@ def main() -> int:
             notes.append(f"사용자 지정 칸 {len(done)}개 반영: {', '.join(done)}")
         b.save(f"{tmp}/out.xlsx")
         daily_job._upload(s, out_id, f"{tmp}/out.xlsx")
+        import tg
+        tg.send_file(f"{tmp}/out.xlsx", f"HAS {y}년 {m}월 가마감 초안", name=out_name)
     print(f"{y}-{m:02d} HAS 가마감: {len(b.log)}칸, 확인 사항 {len(notes)}건")
     lines = [f"'{out_name}' 생성 (전월 마감 양식 + Irina {src['when']:%m/%d} 자료)",
              f"환율: 월말 {j8} (전월 {old}), 월평균 {avg}", f"바꾼 칸 {len(b.log)}개", "", "확인 필요:"] + [f"- {n}" for n in notes]

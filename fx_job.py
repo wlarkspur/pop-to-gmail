@@ -44,6 +44,8 @@ def find_file(s) -> str:
 
 
 def mail(subject: str, body: str):
+    import tg
+    tg.send(f"{subject}\n\n{body}")
     user, pw = os.environ.get("GMAIL_USER"), os.environ.get("GMAIL_APP_PASSWORD")
     if not (user and pw):
         return

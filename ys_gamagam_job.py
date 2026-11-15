@@ -23,6 +23,7 @@ from email.utils import parsedate_to_datetime
 import daily_job
 import fx_cbr
 import fx_job
+import tg
 import ys_gamagam as g
 from pop2gmail import _imap_quote, gmail_folders
 
@@ -134,6 +135,7 @@ def main() -> int:
         lines.append(f"누적 마감: 양식 {t[1]}년 {t[2]}월 파일 + monthly {src['monthly_when']:%m/%d} -> 바꾼 칸 {len(log)}개, EUR 월평균 {avg[m]:.4f}")
         if out_ids["cum"]:
             daily_job._upload(s, out_ids["cum"], f"{tmp}/cum.xlsx")
+            tg.send_file(f"{tmp}/cum.xlsx", f"YSKD {y}년 {m}월 누적 마감 초안", name=names["cum"])
         else:
             notes.append(f"'{names['cum']}' 자리 파일이 없어 올리지 못함 (드라이브에 같은 이름 파일을 만들어 두고 다시 실행)")
         # 2) 채권채무
@@ -151,6 +153,7 @@ def main() -> int:
             lines.append(f"채권채무: 양식 {t2[1]}년 {t2[2]}월 파일 + 1C 잔액 '{raw['raw_name']}' ({raw['raw_when']:%m/%d}) -> {', '.join(log2)}, EUR 월말 {month_end}")
             if out_ids["arap"]:
                 daily_job._upload(s, out_ids["arap"], f"{tmp}/ar.xlsx")
+                tg.send_file(f"{tmp}/ar.xlsx", f"YSKD {y}년 {m}월 채권채무 초안", name=names["arap"])
             else:
                 notes.append(f"'{names['arap']}' 자리 파일이 없어 올리지 못함")
         else:

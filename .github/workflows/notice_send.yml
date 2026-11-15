@@ -15,6 +15,9 @@ concurrency:
 jobs:
   send:
     runs-on: ubuntu-latest
+    env:
+      TG_TOKEN: ${{ secrets.TG_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
@@ -29,3 +32,5 @@ jobs:
           GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
           POP_USER: ${{ secrets.POP_USER }}
           POP_PASS: ${{ secrets.POP_PASS }}
+      - if: failure()
+        run: pip install -q requests==2.32.3 && python3 tg.py --fail "${{ github.workflow }}" "${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }}"
