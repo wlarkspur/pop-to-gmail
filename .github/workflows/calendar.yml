@@ -26,6 +26,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - run: python3 ru_calendar.py --update ${{ github.event.inputs.years }}
       - run: |
           git config user.name "github-actions[bot]"

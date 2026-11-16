@@ -15,6 +15,9 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - run: pip install -q requests==2.32.3
       - run: |
           test -n "$TG_TOKEN" || { echo "TG_TOKEN 시크릿 없음"; exit 1; }

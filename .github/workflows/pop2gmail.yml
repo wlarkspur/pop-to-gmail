@@ -21,6 +21,9 @@ jobs:
     timeout-minutes: 5
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - name: 새 메일 가져오기
         run: python3 pop2gmail.py
         env:

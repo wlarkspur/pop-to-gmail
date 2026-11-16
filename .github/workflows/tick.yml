@@ -20,6 +20,9 @@ jobs:
     timeout-minutes: 3
     steps:
       - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
       - run: python3 tick.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
