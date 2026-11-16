@@ -23,6 +23,7 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
+      - run: pip install -q requests==2.32.3
       - run: python3 tick.py
         env:
           GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
