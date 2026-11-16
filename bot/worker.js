@@ -8,7 +8,7 @@ const HELP = [
   "아래 메뉴 버튼으로 대부분 할 수 있어요. 명령어로도 돼요.",
   "",
   "/status - 최근 자동 작업 결과",
-  "/gamagam HAS 2026-11 - HAS 가마감 초안 (YSKD도 같음)",
+  "/gamagam HAS 2026-11 - HAS(HDC 보고) 가마감 초안 (HASYS = HAS YS 보고, YSKD)",
   "/daily 2026-11 HAS - 가마감용 Daily Report (월, 법인 생략 가능)",
   "/cbr 2026-11 - CBR EUR 일별 환율 채우기 (생략하면 지난달)",
   "/salary 2026-11-19 - 급여환율 수동 실행 (생략하면 오늘)",
@@ -70,10 +70,10 @@ const mm = (s) => (s ? `${Number(s.slice(5))}월` : "");
 // ── 작업 실행 (명령어, 메뉴 버튼이 모두 여기로)
 async function run(env, job, a = "", b = "") {
   if (job === "gamagam") {
-    if (!a || !b) return say(env, "예: /gamagam HAS 2026-11  또는  /gamagam YSKD 11");
-    const ent = /^has$/i.test(a) ? "HAS" : "YSKD";
-    await dispatch(env, ent === "HAS" ? "gamagam.yml" : "ys_gamagam.yml", { month: b });
-    return say(env, `▶ ${ent} ${b} 가마감 초안 실행. 끝나면 파일과 결과를 보내 드려요.`);
+    if (!a || !b) return say(env, "예: /gamagam HAS 2026-11, /gamagam HASYS 11, /gamagam YSKD 11");
+    const wf = { HAS: "gamagam.yml", HASYS: "has_ys.yml", YSKD: "ys_gamagam.yml" }[a];
+    await dispatch(env, wf, { month: b });
+    return say(env, `▶ ${ENT[a]} ${b} 가마감 초안 실행. 끝나면 파일과 결과를 보내 드려요.`);
   }
   if (job === "daily") {
     const inputs = {};
@@ -112,6 +112,16 @@ async function status(env) {
   return say(env, "최근 작업 (칼리닌그라드 시각)\n" + (lines.join("\n") || "없음"));
 }
 
+const ENT = { HAS: "HAS(HDC 보고)", HASYS: "HAS(YS 보고)", YSKD: "YSKD" };
+function entity(x) {  // 명령어 인자 -> HAS / HASYS / YSKD
+  if (!x) return "";
+  const t = x.toLowerCase().replace(/[()\s-]/g, "");
+  if (["hasys", "hasysh", "ys보고", "hasyz"].includes(t)) return "HASYS";
+  if (["has", "hashdc", "hdc"].includes(t)) return "HAS";
+  if (["yskd", "kld"].includes(t)) return "YSKD";
+  return "";
+}
+
 // ── 메뉴
 const MENU = {
   keyboard: [["📊 작업 현황", "📑 가마감"], ["📅 Daily Report", "💱 환율"], ["🍱 식대", "❓ 도움말"]],
@@ -121,8 +131,8 @@ const btn = (text, data) => ({ text, callback_data: data });
 function submenu(name) {
   const p1 = ym(-1), p2 = ym(-2), c = ym(0), n = ym(1);
   if (name === "📑 가마감") return ["가마감 초안 (실행 전에 한 번 더 확인해요)", [
-    [btn(`HAS ${mm(p1)}`, `ask:gamagam:HAS:${p1}`), btn(`YSKD ${mm(p1)}`, `ask:gamagam:YSKD:${p1}`)],
-    [btn(`HAS ${mm(p2)}`, `ask:gamagam:HAS:${p2}`), btn(`YSKD ${mm(p2)}`, `ask:gamagam:YSKD:${p2}`)]]];
+    [btn(`HAS(HDC) ${mm(p1)}`, `ask:gamagam:HAS:${p1}`), btn(`HAS(YS) ${mm(p1)}`, `ask:gamagam:HASYS:${p1}`), btn(`YSKD ${mm(p1)}`, `ask:gamagam:YSKD:${p1}`)],
+    [btn(`HAS(HDC) ${mm(p2)}`, `ask:gamagam:HAS:${p2}`), btn(`HAS(YS) ${mm(p2)}`, `ask:gamagam:HASYS:${p2}`), btn(`YSKD ${mm(p2)}`, `ask:gamagam:YSKD:${p2}`)]]];
   if (name === "📅 Daily Report") return [`가마감용 Daily Report (${mm(p1)})`, [
     [btn("HAS + YSKD", `run:daily::${p1}`)],
     [btn("HAS만", `run:daily:HAS:${p1}`), btn("YSKD만", `run:daily:YSKD:${p1}`)]]];
@@ -154,12 +164,12 @@ async function handle(u, env) {
     }
     if (act === "ask") {  // 덮어쓰는 작업은 한 번 더 확인
       const [job, a, b] = rest;
-      return edit(`${a} ${b} ${LABEL[job]}을(를) 실행할까요? 드라이브의 그달 파일을 덮어써요.`,
+      return edit(`${ENT[a] || a} ${b} ${LABEL[job]}을(를) 실행할까요? 드라이브의 그달 파일을 덮어써요.`,
         [[btn("▶ 실행", `run:${job}:${a}:${b}`), btn("그만두기", "cancel")]]);
     }
     if (act === "run") {
       const [job, a, b] = rest;
-      await edit(`${[LABEL[job], a, b].filter(Boolean).join(" ")} - 실행 요청함`);
+      await edit(`${[LABEL[job], ENT[a] || a, b].filter(Boolean).join(" ")} - 실행 요청함`);
       return run(env, job, a, b);
     }
     if (act === "cancel") return edit("그만뒀어요.");
@@ -191,8 +201,7 @@ async function handle(u, env) {
   // 명령어
   const [cmd0, ...args] = text.split(/\s+/);
   const cmd = cmd0.replace(/@.*$/, "").toLowerCase();
-  const ent = (args.find((x) => /^(has|yskd|ys)$/i.test(x)) || "");
-  const entN = ent ? (/^has$/i.test(ent) ? "HAS" : "YSKD") : "";
+  const entN = args.map(entity).find(Boolean) || "";
   const mon = month(args.find((x) => /^\d/.test(x) && !/^\d{4}-\d{2}-\d{2}$/.test(x)) || "");
   const day = args.find((x) => /^\d{4}-\d{2}-\d{2}$/.test(x)) || "";
 
@@ -200,7 +209,7 @@ async function handle(u, env) {
   if (cmd === "/help") return say(env, HELP, { reply_markup: MENU });
   if (cmd === "/status") return status(env);
   if (cmd === "/gamagam") return run(env, "gamagam", entN, mon);
-  if (cmd === "/daily") return run(env, "daily", entN, mon);
+  if (cmd === "/daily") return run(env, "daily", entN === "HASYS" ? "HAS" : entN, mon);
   if (cmd === "/cbr") return run(env, "cbr", "", mon);
   if (cmd === "/salary") return run(env, "salary", "", day);
   if (cmd === "/meal") return run(env, "meal", "", mon);

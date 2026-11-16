@@ -88,3 +88,11 @@ x-rates가 기준일까지 반영 안 됐으면 30분 뒤 재시도, 12:00 회�
 - 2단계 봇(bot/worker.js, Cloudflare Worker 'hasbot'): 명령(/status, /gamagam, /daily, /cbr, /salary, /meal)은 GitHub Actions 실행으로 넘김
 - 공지 대기 알림의 [승인] -> 비밀번호 답장 -> 봇이 메시지를 지우고 HMAC(TG_TOKEN, "notice|비밀번호|key|ts")만 notice_send 입력으로 넘김 (공개 저장소라 비밀번호 hash를 입력에 안 씀)
 - 배포: bot_deploy.yml (bot/ 수정 시 자동, 수동 실행 가능). 시크릿 CLOUDFLARE_API_TOKEN, CLOUDFLARE_ACCOUNT_ID, BOT_GH_TOKEN(이 저장소 Actions 쓰기 권한 토큰) 필요
+
+## HAS 가마감 YS 보고용 (has_ys.yml, 수동 실행 / 텔레그램 가마감 메뉴 'HAS(YS)')
+- 드라이브 'HAS 손익보고 / YY년 (YS) / M월' 폴더의 3개: 마감(YSH 보고), 재무제표 (KR), ARAP 차입대여금 현황. 양식은 앞 달 폴더에서 가져오고 같은 이름 자리 파일에 덮어씀
+- 입력은 HDC용과 같은 Irina 'Отчет HAS за MM/YYYY' 첨부 3개 (monthly '9-1 상세(RUB)', 재무제표(RUB), Конечные остатки)
+- 마감(YSH): '26년 실적(RUB)' 1월~이번 달 전체를 monthly 값으로 다시 맞춤 (지난달 수정분 반영, 바뀐 과거 칸은 메일로). 환율정보 44행은 이번 달만 CBR EUR 월평균
+- 재무제표(KR): '재무현황' D열 = 재무제표(RUB) J열 (has_ys.KRMAP), D60 = 이번 달 EUR 월평균. D59 평균환율은 근거를 몰라 그대로 둠
+- ARAP: 기준일, 5.AP 금액, 6.차입금 잔액 = Конечные остатки. 3.AR 송장 행과 새 차입처 행은 사람이 판단 - 합계가 다르거나 새 항목이 있으면 메일로
+- 2026년 10월 사용자 완성본으로 재현 확인: 마감, KR 숫자 칸 전부 일치(KR D59 제외), ARAP는 사람이 추가한 AR 2행, 차입금 1행만 차이(메일 목록에 잡힘)
