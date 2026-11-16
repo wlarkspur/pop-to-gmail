@@ -164,7 +164,7 @@ async function handle(u, env) {
     }
     if (act === "ask") {  // 덮어쓰는 작업은 한 번 더 확인
       const [job, a, b] = rest;
-      return edit(`${ENT[a] || a} ${b} ${LABEL[job]}을(를) 실행할까요? 드라이브의 그달 파일을 덮어써요.`,
+      return edit(`${ENT[a] || a} ${b} ${LABEL[job]}을(를) 실행할까요?\n(드라이브 그달 폴더의 초안 파일에 결과를 써요. 같은 달을 다시 돌리면 그 초안이 새로 바뀌어요.)`,
         [[btn("▶ 실행", `run:${job}:${a}:${b}`), btn("그만두기", "cancel")]]);
     }
     if (act === "run") {
