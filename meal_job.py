@@ -43,6 +43,8 @@ def main() -> int:
             focus(f"{tmp}/built.xlsx", f"{tmp}/out.xlsx", res["시트"], "E3")  # 열면 새 시트 첫 칸
         print("식대 시트:", res["상태"])  # 공개 저장소 실행 기록이라 금액은 안 찍음 (상세는 결과 메일)
         if res["상태"] == "이미 있음":
+            import tg
+            tg.send(f"🍱 식대 시트 {y}-{m:02d}: 이미 있어서 그대로 둠\n드라이브 '급여' 폴더 '{fname}' 파일의 '{res['시트']}' 시트")
             return 0
         _upload(s, fid, f"{tmp}/out.xlsx", XLSX)
         if res["상태"] != "생성":
