@@ -225,6 +225,8 @@ def main() -> int:
         res = write_eur_xls(f"{tmp}/fx.xls", f"{tmp}/fx_out.xls", rate, rates["EUR"]["월평균"])
         if res["상태"] == "기록":
             _upload(s, fid, f"{tmp}/fx_out.xls", "application/vnd.ms-excel")
+            import tg
+            tg.send_file(f"{tmp}/fx_out.xls", f"💱 급여환율 EUR 기록 ({res['위치']})", name=fx_job.FILE_NAME)
         notes.append(f"EUR: {res['위치']} ({res['상태']})")
         year = (nominal or rate).year
         pid, pname, created = find_pay_file(s, year)
@@ -243,6 +245,8 @@ def main() -> int:
                 open(f"shot_{k}.png", "wb").write(v)
         if res["상태"] == "기록":
             _upload(s, pid, f"{tmp}/pay_out.xlsx", "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet")
+            import tg
+            tg.send_file(f"{tmp}/pay_out.xlsx", f"💱 급여환율 USD, CNY 기록 ({res['위치']})", name=pname)
         notes.append(f"USD, CNY: {pname} {res['위치']} ({res['상태']})")
     print("기록:", ", ".join(n.split("(")[-1].rstrip(")") for n in notes))  # 상태만
     if all("이미 기록됨" in n for n in notes if "생성" not in n) and os.environ.get("DRY_RUN") != "1" \

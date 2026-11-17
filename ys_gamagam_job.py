@@ -161,6 +161,7 @@ def main() -> int:
         # 3) KLD 재무제표 = Irina 첨부 그대로
         if out_ids["kld"]:
             daily_job._upload(s, out_ids["kld"], src["kld"])
+            tg.send_file(src["kld"], f"YSKD {y}년 {m}월 KLD 재무제표", name=names["kld"])
             lines.append(f"KLD 재무제표: Irina 첨부 '{src['kld_name']}' 그대로 올림")
         else:
             notes.append(f"'{names['kld']}' 자리 파일이 없어 올리지 못함")

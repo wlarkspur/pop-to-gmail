@@ -82,6 +82,8 @@ def main() -> int:
                      params={"uploadType": "media", "supportsAllDrives": "true"},
                      data=open(dst, "rb").read(), headers={"Content-Type": "application/vnd.ms-excel"})
         up.raise_for_status()
+        import tg
+        tg.send_file(dst, f"💶 CBR EUR {res['월']} 일별 환율 ({res['채운 칸']}일 채움)", name=FILE_NAME)
     lines = [f"{res['월']} CBR EUR 일별 환율을 '{FILE_NAME}' {res['시트']} 시트에 채웠습니다.",
              f"- 채운 칸: {res['채운 칸']}일",
              f"- 월평균(일수 평균): {res['월평균(일수 평균)']}",

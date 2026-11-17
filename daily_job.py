@@ -127,6 +127,8 @@ def run(ent: str, y: int, m: int, s, overrides: dict) -> list[str]:
         if not (v["입금 합계 일치"] and v["출금 합계 일치"]) or v["분류 빈 칸 행"] or v["목록에 없는 분류 행"]:
             return [f"[{ent}] 결과 검증 실패 {v} - 파일 안 바꿈, 확인 필요"]
         _upload(s, fid, f"{tmp}/out.xlsx")
+        import tg
+        tg.send_file(f"{tmp}/out.xlsx", f"📅 [{ent}] 가마감용 Daily Report '{sheet}' 시트 추가", name=name)
     lines = [f"[{ent}] '{name}'에 '{sheet}' 시트 추가 (원자료 {when.astimezone(KLD):%m/%d %H:%M} 받은 메일"
              + (", 월초 정정본" if corrected else "") + ")",
              f"  입금 {src['in']:,.2f} / 출금 {src['out']:,.2f} / 월초 잔액 {src['open']:,.2f} -> 월말 {src['close']:,.2f} (검증 통과)"]
