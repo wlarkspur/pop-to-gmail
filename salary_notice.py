@@ -110,8 +110,6 @@ def _addr_html(lst):
 def _send_company(m: dict, test: bool = False):
     """회사 메일 서버로 1통 발송. test=True면 받는 사람을 무조건 본인(보내는 사람 주소) 하나로 고정
     (헤더뿐 아니라 실제 전송 대상 목록도 본인만), 제목에 [테스트], 본문 맨 위에 원래 받는 사람/참조를 적는다."""
-    host = os.environ.get("SMTP_HOST", "mail.youngsan.com")
-    port = int(os.environ.get("SMTP_PORT", "25"))
     FROM = config()["from"]
     msg = EmailMessage()
     msg["From"] = FROM
@@ -133,11 +131,34 @@ def _send_company(m: dict, test: bool = False):
     msg["Message-ID"] = make_msgid(domain="youngsan.com")
     msg.set_content("HTML 메일입니다.")
     msg.add_alternative(f"<html><body>{html}</body></html>", subtype="html")
-    with smtplib.SMTP(host, port, timeout=60) as s:  # Outlook 설정과 같은 서버, 포트, 인증
-        s.ehlo()
-        if s.has_extn("starttls"):
-            import ssl
-            s.starttls(context=ssl.create_default_context())
-            s.ehlo()
-        s.login(os.environ["POP_USER"], os.environ["POP_PASS"])
+    with smtp_connect() as s:
         s.send_message(msg, to_addrs=to_addrs)
+
+
+def smtp_connect():
+    """회사 메일 서버에 로그인한 SMTP 연결. GitHub 실행 서버는 25번 포트가 막혀 있어서(2026-11 확인)
+    587(STARTTLS) -> 465(SSL) -> 25 순서로 시도. 인증서 검증은 끄지 않음."""
+    import ssl
+    host = os.environ.get("SMTP_HOST", "mail.youngsan.com")
+    ports = [int(p) for p in os.environ.get("SMTP_PORTS", "587,465,25").split(",")]
+    ctx = ssl.create_default_context()
+    errors = []
+    for port in ports:
+        try:
+            if port == 465:
+                s = smtplib.SMTP_SSL(host, port, timeout=30, context=ctx)
+                s.ehlo()
+            else:
+                s = smtplib.SMTP(host, port, timeout=30)
+                s.ehlo()
+                if s.has_extn("starttls"):
+                    s.starttls(context=ctx)
+                    s.ehlo()
+                elif port == 587:
+                    s.quit()
+                    raise RuntimeError("587인데 STARTTLS 없음")
+            s.login(os.environ["POP_USER"], os.environ["POP_PASS"])
+            return s
+        except (OSError, smtplib.SMTPException, RuntimeError) as e:
+            errors.append(f"{port}: {type(e).__name__} {e}")
+    raise RuntimeError("회사 메일 서버 연결 실패 - " + " / ".join(errors))

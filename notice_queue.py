@@ -167,13 +167,17 @@ def process() -> str:
                 n["status"], msg = "test_ok", f"테스트: 비밀번호 확인, {len(n['mails'])}통을 본인(본인 회사 주소)에게만 발송"
             except Exception as e:  # noqa: BLE001
                 n["status"], msg = "error", f"테스트 발송 중 오류: {e}"
-        else:
+        else:  # 보낸 통은 기록해 두고, 오류 뒤 다시 승인하면 안 보낸 통만 보냄 (중복 발송 방지)
+            sent = n.setdefault("sent_idx", [])
             try:
-                for m in n["mails"]:
+                for i, m in enumerate(n["mails"]):
+                    if i in sent:
+                        continue
                     salary_notice._send_company(m)
+                    sent.append(i)
                 n["status"], msg = "sent", f"{len(n['mails'])}통 발송 완료 (본인 회사 주소)"
             except Exception as e:  # noqa: BLE001
-                n["status"], msg = "error", f"발송 중 오류: {e}"
+                n["status"], msg = "error", f"발송 중 오류 ({len(sent)}/{len(n['mails'])}통 보낸 뒤): {e} - 다시 승인하면 안 보낸 통만 보냄"
         n["history"].append(f"{_now()} {msg}")
         done.append((n, msg))
     save(s, q, changed)  # 확인 시각은 매번, 변경 시각은 실제로 바뀐 때만

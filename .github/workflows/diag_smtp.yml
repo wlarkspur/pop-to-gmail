@@ -11,22 +11,17 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 5
     steps:
-      - run: |
-          python3 - <<'PY'
-          import socket, time, smtplib
-          host = "mail.youngsan.com"
-          print("IP", socket.gethostbyname(host))
-          for port in (25, 587, 465, 110, 995):
-              for i in range(2):
-                  t = time.time()
-                  try:
-                      socket.create_connection((host, port), timeout=15).close(); r = "연결됨"
-                  except Exception as e:
-                      r = f"실패 {type(e).__name__} {e}"
-                  print(port, i, r, f"{time.time()-t:.1f}s")
-          try:
-              with smtplib.SMTP(host, 25, timeout=30) as s:
-                  print("EHLO", s.ehlo()[0], "STARTTLS", s.has_extn("starttls"))
-          except Exception as e:
-              print("SMTP25 실패", type(e).__name__, e)
-          PY
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q google-auth==2.35.0 requests==2.32.3 xlrd==2.0.1 olefile==0.47
+      - name: 로그인만 확인 (메일은 안 보냄)
+        env:
+          POP_USER: ${{ secrets.POP_USER }}
+          POP_PASS: ${{ secrets.POP_PASS }}
+        run: |
+          python3 -c "
+          import salary_notice as n
+          s = n.smtp_connect(); print('로그인 성공, 포트', s.sock.getpeername()[1]); s.quit()
+          "

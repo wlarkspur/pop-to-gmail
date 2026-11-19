@@ -41,7 +41,13 @@ class FakeSMTP:
         pass
 
     def has_extn(self, x):
-        return False
+        return x == "starttls"
+
+    def starttls(self, context=None):
+        pass
+
+    def quit(self):
+        pass
 
     def login(self, u, p):
         SMTP_LOG.append(("login", u))
@@ -51,6 +57,7 @@ class FakeSMTP:
 
 
 smtplib.SMTP = FakeSMTP  # 회사 메일 서버 대신 기록만 하는 가짜
+smtplib.SMTP_SSL = lambda host, port, timeout=None, context=None: FakeSMTP(host, port, timeout)
 
 
 class Resp:
@@ -167,4 +174,26 @@ drive = FakeDrive(q, {}, []); fx_job.drive = lambda: drive; nq.process()
 assert drive.queue["notices"][0]["status"] == "wrong_password" and not SMTP_LOG, "텔레그램 입력은 봇 토큰 HMAC만 인정"
 print("텔레그램 입력에 sha256 hash를 넣으면 거부 (봇 토큰 HMAC만 인정)")
 os.environ.pop("TG_CONFIRM", None); os.environ.pop("TG_CANCEL", None); os.environ.pop("TG_TOKEN", None)
+# 중간에 끊겨도 보낸 통은 기록되고, 다시 승인하면 안 보낸 통만 보냄
+import salary_notice as _sn
+_orig = _sn._send_company
+calls = {"n": 0}
+def _flaky(m, test=False):
+    calls["n"] += 1
+    if calls["n"] == 2:
+        raise TimeoutError("timed out")
+    return _orig(m, test)
+_sn._send_company = _flaky
+SMTP_LOG.clear()
+q = {"notices": [{"key": "salary-20261110", "title": "x", "created": "-", "status": "pending", "test": False,
+                  "summary": [], "mails": copy.deepcopy(MAILS), "history": []}], "processed": []}
+drive = FakeDrive(q, {"c1": confirm("salary-20261110", "pw-정답")}, []); fx_job.drive = lambda: drive; nq.process()
+n0 = drive.queue["notices"][0]
+assert n0["status"] == "error" and n0["sent_idx"] == [0] and len([x for x in SMTP_LOG if x[0] == "send"]) == 1
+SMTP_LOG.clear()
+drive2 = FakeDrive(drive.queue, {"c2": confirm("salary-20261110", "pw-정답")}, []); fx_job.drive = lambda: drive2; nq.process()
+n1 = drive2.queue["notices"][0]
+assert n1["status"] == "sent" and n1["sent_idx"] == [0, 1, 2] and len([x for x in SMTP_LOG if x[0] == "send"]) == 2
+print("발송 중 끊김: 1통 보낸 뒤 오류 -> 다시 승인하면 나머지 2통만 발송 (중복 없음)")
+_sn._send_company = _orig
 print("모든 검증 통과: 테스트는 본인 주소로만, 틀린 비밀번호는 서버 접속 없음, 진짜 항목만 원래 수신자에게")
