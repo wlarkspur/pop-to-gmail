@@ -97,6 +97,33 @@ def _check_tg(password: str, key: str, ts: str, mac: str) -> bool:
 RETRY_MAX = 13  # 연결 오류면 5분 간격(시계)으로 최대 12번 자동 재시도 = 약 1시간 (실행할 때마다 다른 서버가 걸림)
 
 
+def runner_host() -> str:
+    """실행 서버가 어느 클라우드인지 (AWS는 25번 포트를 막음). IP 같은 건 안 남김."""
+    try:
+        v = open("/sys/class/dmi/id/sys_vendor").read().strip()
+    except OSError:
+        return "알 수 없음"
+    return "AWS" if "Amazon" in v else "Microsoft" if "Microsoft" in v else v or "알 수 없음"
+
+
+AWS_ALERT = (10, 3)  # 최근 10번 발송 시도 중 AWS가 3번 이상이면 텔레그램 경고 (평소 1번 안팎)
+
+
+def _track(q: dict, host: str, ok: bool) -> str | None:
+    """발송 시도마다 서버 종류 기록. AWS 비율이 커지면 경고 문구 돌려줌 (한 번만)."""
+    log = (q.get("runner_log", []) + [f"{host}:{'ok' if ok else 'fail'}"])[-AWS_ALERT[0]:]
+    q["runner_log"] = log
+    aws = sum(x.startswith("AWS") for x in log)
+    if len(log) >= AWS_ALERT[0] and aws >= AWS_ALERT[1]:
+        if not q.get("aws_alerted"):
+            q["aws_alerted"] = True
+            return (f"⚠️ 메일 발송 서버 경고: 최근 {len(log)}번 시도 중 {aws}번이 AWS 서버(25번 포트 막힘)에 걸림. "
+                    "GitHub가 AWS 비중을 늘리는 중일 수 있어요. 계속되면 발송 방식을 바꿔야 해요.")
+    elif aws < AWS_ALERT[1]:
+        q["aws_alerted"] = False
+    return None
+
+
 def _deliver(n: dict) -> str:
     """승인된 진짜 항목 발송. 보낸 통은 sent_idx에 기록해서 다시 시도해도 중복 발송 없음.
     서버 연결 오류(일시적)면 상태를 retry로 두고 다음 실행 때 자동으로 다시 보냄 (비밀번호 다시 안 물음)."""
@@ -109,19 +136,20 @@ def _deliver(n: dict) -> str:
             salary_notice._send_company(m)
             sent.append(i)
         n["status"] = "sent"
-        return f"{len(n['mails'])}통 발송 완료 (본인 회사 주소)" + (f" - 자동 재시도 {n['retries']}번째에 성공" if n.get("retries") else "")
+        return f"{len(n['mails'])}통 발송 완료 (본인 회사 주소)" + (f" - 자동 재시도 {n['retries']}번째에 성공 ({runner_host()} 서버)" if n.get("retries") else "")
     except Exception as e:  # noqa: BLE001
         n["retries"] = n.get("retries", 0) + 1
         part = f"{len(sent)}/{len(n['mails'])}통 보낸 뒤"
         if n["retries"] < RETRY_MAX:
             n["status"] = "retry"
-            return f"발송 중 오류 ({part}): {e} - 5분 뒤 다른 실행 서버로 자동 재시도 ({n['retries']}/{RETRY_MAX - 1})"
+            return f"발송 중 오류 ({part}, {runner_host()} 서버): {e} - 5분 뒤 다른 실행 서버로 자동 재시도 ({n['retries']}/{RETRY_MAX - 1})"
         n["status"] = "error"
-        return f"발송 중 오류 ({part}): {e} - 자동 재시도 끝, 다시 승인하면 안 보낸 통만 보냄"
+        return f"발송 중 오류 ({part}, {runner_host()} 서버): {e} - 자동 재시도 끝, 다시 승인하면 안 보낸 통만 보냄"
 
 
 def process() -> str:
     import salary_notice
+    import tg
     s = fx_job.drive()
     q = load(s)
     q.setdefault("processed", [])
@@ -154,6 +182,9 @@ def process() -> str:
             changed = True
             continue
         msg = _deliver(n)
+        warn = _track(q, runner_host(), n["status"] == "sent")
+        if warn:
+            tg.send(warn)
         if n["status"] != "retry" or n["retries"] in (3, 6, 9):  # 성공, 최종 실패, 중간 경과만 기록, 알림
             n["history"].append(f"{_now()} {msg}")
             done.append((n, msg))
@@ -211,6 +242,9 @@ def process() -> str:
             import time
             n["retry_since"] = int(time.time() * 1000)
             msg = _deliver(n)
+            warn = _track(q, runner_host(), n["status"] == "sent")
+            if warn:
+                tg.send(warn)
         n["history"].append(f"{_now()} {msg}")
         done.append((n, msg))
     save(s, q, changed)  # 확인 시각은 매번, 변경 시각은 실제로 바뀐 때만
