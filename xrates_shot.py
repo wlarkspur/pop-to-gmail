@@ -27,18 +27,35 @@ def capture(curs=("USD", "CNY"), year: int | None = None) -> dict[str, bytes]:
         for cur in curs:
             pg.goto(f"https://www.x-rates.com/average/?from={cur}&to=RUB&amount=1&year={year}",
                     wait_until="networkidle", timeout=60000)
-            sel = "div.moduleContent:has(h1.monthlyaverageH1)"
-            el = pg.locator(sel).first
-            el.scroll_into_view_if_needed()
-            # 숫자 부분만: 제목(통화) + 월별 평균, 일수 목록. 그래프 자리는 뺌
-            title = pg.locator(f"{sel} h1.monthlyaverageH1").first.bounding_box()
-            lst = pg.locator(f"{sel} ul.OutputLinksAvg").first.bounding_box()
-            box = el.bounding_box()
             pad = 8
-            top = pg.screenshot(clip={"x": box["x"], "y": title["y"] - pad, "width": box["width"],
-                                      "height": title["height"] + pad})
-            body = pg.screenshot(clip={"x": box["x"], "y": lst["y"] - pad, "width": box["width"],
-                                       "height": lst["height"] + 2 * pad})
+            if pg.locator("td.avgMonth").count():  # 2026-11 개편 후 화면
+                box = pg.evaluate("""() => {  // 표 상자 (페이지 좌표)
+                    const r = document.querySelector('td.avgMonth').closest('div.rounded-card').getBoundingClientRect();
+                    return {x: r.x + scrollX, y: r.y + scrollY, width: r.width, height: r.height};
+                }""")
+                # 제목 'Monthly Average' + 부제 'Russian Ruble per 1 US Dollar ...' 묶음
+                head = pg.evaluate("""() => {
+                    const h = [...document.querySelectorAll('h1')].find(e => e.textContent.trim() === 'Monthly Average');
+                    const a = h.getBoundingClientRect();  // 제목 위 ~ 부제(바로 다음 요소) 아래
+                    const b = (h.nextElementSibling || h).getBoundingClientRect();
+                    return {x: a.x + scrollX, y: a.y + scrollY, width: a.width, height: b.bottom - a.top + 14};
+                }""")
+                top = pg.screenshot(full_page=True, clip={"x": box["x"], "y": head["y"] - pad, "width": box["width"],
+                                                          "height": head["height"] + 2 * pad})
+                body = pg.screenshot(full_page=True, clip={"x": box["x"] - 1, "y": box["y"] - 1,
+                                                           "width": box["width"] + 2, "height": box["height"] + 2})
+            else:  # 예전 화면
+                sel = "div.moduleContent:has(h1.monthlyaverageH1)"
+                el = pg.locator(sel).first
+                el.scroll_into_view_if_needed()
+                # 숫자 부분만: 제목(통화) + 월별 평균, 일수 목록. 그래프 자리는 뺌
+                title = pg.locator(f"{sel} h1.monthlyaverageH1").first.bounding_box()
+                lst = pg.locator(f"{sel} ul.OutputLinksAvg").first.bounding_box()
+                box = el.bounding_box()
+                top = pg.screenshot(clip={"x": box["x"], "y": title["y"] - pad, "width": box["width"],
+                                          "height": title["height"] + pad})
+                body = pg.screenshot(clip={"x": box["x"], "y": lst["y"] - pad, "width": box["width"],
+                                           "height": lst["height"] + 2 * pad})
             out[cur] = _stack(top, body)
         b.close()
     return out
