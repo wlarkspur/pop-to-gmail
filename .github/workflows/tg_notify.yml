@@ -6,6 +6,10 @@ on:
       text:
         description: "보낼 내용 (공개 저장소라 실행 기록에 남음 - 민감 정보 금지)"
         required: true
+      approve_key:
+        description: "공지 key를 넣으면 승인/취소 버튼을 붙임 (선택)"
+        required: false
+        default: ""
 
 permissions:
   contents: read
@@ -18,10 +22,11 @@ jobs:
       TG_TOKEN: ${{ secrets.TG_TOKEN }}
       TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
       TEXT: ${{ github.event.inputs.text }}
+      KEY: ${{ github.event.inputs.approve_key }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
       - run: pip install -q requests==2.32.3
-      - run: python3 -c "import os,sys,tg; sys.exit(0 if tg.send(os.environ['TEXT']) else 1)"
+      - run: python3 -c "import os,sys,tg; k=os.environ['KEY']; sys.exit(0 if tg.send(os.environ['TEXT'], [[('✅ 승인','ok:'+k),('✖ 취소','no:'+k)]] if k else None) else 1)"
