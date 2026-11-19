@@ -21,7 +21,10 @@ jobs:
           POP_USER: ${{ secrets.POP_USER }}
           POP_PASS: ${{ secrets.POP_PASS }}
         run: |
-          python3 -c "
+          for p in 587 465 25; do SMTP_PORTS=$p python3 -c "
           import salary_notice as n
-          s = n.smtp_connect(); print('로그인 성공, 포트', s.sock.getpeername()[1]); s.quit()
-          "
+          try:
+              s = n.smtp_connect(); print('포트 $p 로그인 성공'); s.quit()
+          except Exception as e:
+              print('포트 $p', str(e)[:300])
+          "; done
