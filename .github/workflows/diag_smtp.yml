@@ -1,0 +1,39 @@
+name: 진단 - 회사 메일 서버 25번 포트 (임시)
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    strategy:
+      fail-fast: false
+      matrix:
+        n: [1, 2, 3, 4, 5, 6, 7, 8]
+    steps:
+      - run: |
+          python3 - <<'PY'
+          import socket, time, urllib.request, json
+          try:
+              ip = json.load(urllib.request.urlopen("https://ipinfo.io/json", timeout=10))
+              print("RUNNER", ip.get("ip"), ip.get("org"), ip.get("region"), ip.get("country"))
+          except Exception as e:
+              print("RUNNER ?", e)
+          host = "mail.youngsan.com"
+          for port in (25, 110):
+              for i in range(3):
+                  t = time.time()
+                  try:
+                      s = socket.create_connection((host, port), timeout=15)
+                      s.settimeout(15)
+                      banner = s.recv(200).decode(errors="replace").strip()[:60]
+                      s.close(); r = "OK " + banner
+                  except Exception as e:
+                      r = f"FAIL {type(e).__name__}"
+                  print(f"PORT {port} try{i} {r} {time.time()-t:.1f}s")
+                  time.sleep(3)
+          PY
