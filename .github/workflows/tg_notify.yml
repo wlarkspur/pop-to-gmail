@@ -28,5 +28,5 @@ jobs:
       - uses: actions/setup-python@v5
         with:
           python-version: "3.12"
-      - run: pip install -q requests==2.32.3 google-auth==2.35.0
-      - run: python3 -c "import os,sys,tg,notice_queue as q; k=os.environ['KEY']; sys.exit(0 if tg.send(os.environ['TEXT'], q.approve_buttons(k) if k else None) else 1)"
+      - run: pip install -q requests==2.32.3
+      - run: python3 -c "import os,sys,tg; k=os.environ['KEY']; sys.exit(0 if tg.send(os.environ['TEXT'], tg.approve_buttons(k) if k else None) else 1)"

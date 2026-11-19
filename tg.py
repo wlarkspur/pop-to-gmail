@@ -20,6 +20,14 @@ def _cfg():
     return (t, c) if t and c else (None, None)
 
 
+def approve_buttons(key: str, panel: str = "https://claude.ai/artifact/3tU19JPD6u8MoM6PfPaZWr") -> list:
+    """공지 승인 버튼 + 제어판 링크(메일 본문, 받는 사람 전체를 보고 거기서 승인해도 됨, #key로 그 건이 바로 열림)."""
+    rows = [[("✅ 승인", f"ok:{key}"), ("✖ 취소", f"no:{key}")]]
+    if panel:
+        rows.append([("🔎 내용 보기 (제어판)", f"{panel}#{key}")])
+    return rows
+
+
 def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> bool:
     """buttons: [[(글자, callback_data 또는 https 링크), ...], ...] - 마지막 조각에만 붙임."""
     t, c = _cfg()
