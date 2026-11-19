@@ -21,7 +21,7 @@ def _cfg():
 
 
 def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> bool:
-    """buttons: [[(글자, callback_data), ...], ...] - 마지막 조각에만 붙임."""
+    """buttons: [[(글자, callback_data 또는 https 링크), ...], ...] - 마지막 조각에만 붙임."""
     t, c = _cfg()
     if not t:
         return False
@@ -30,7 +30,7 @@ def send(text: str, buttons: list[list[tuple[str, str]]] | None = None) -> bool:
         for k, part in enumerate(parts):
             body = {"chat_id": c, "text": part, "disable_web_page_preview": True}
             if buttons and k == len(parts) - 1:
-                body["reply_markup"] = {"inline_keyboard": [[{"text": a, "callback_data": b} for a, b in row] for row in buttons]}
+                body["reply_markup"] = {"inline_keyboard": [[{"text": a, ("url" if b.startswith("https://") else "callback_data"): b} for a, b in row] for row in buttons]}
             r = requests.post(API.format(t, "sendMessage"), json=body, timeout=20)
             r.raise_for_status()
         return True

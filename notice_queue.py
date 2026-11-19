@@ -69,7 +69,7 @@ def add_notice(s, key: str, title: str, mails: list[dict], summary: list[str], t
     save(s, q)
     import tg
     tg.send("\n".join([f"📨 발송 대기: {item['title']}", ""] + list(summary) + ["", f"[{key}]"]),
-            buttons=[[("✅ 승인", f"ok:{key}"), ("✖ 취소", f"no:{key}")]])
+            buttons=approve_buttons(key))
     return True
 
 
@@ -84,6 +84,14 @@ def _list_confirms(s, prefix: str = "confirm_") -> list[dict]:
 def _check(password: str, key: str, ts: str, h: str) -> bool:
     want = hashlib.sha256(f"{password}|{key}|{ts}".encode("utf-8")).hexdigest()
     return hmac.compare_digest(want, (h or "").lower())
+
+
+def approve_buttons(key: str) -> list:
+    """텔레그램 승인 버튼 + 제어판 링크(메일 본문, 받는 사람 전체를 보고 거기서 승인해도 됨)."""
+    rows = [[("✅ 승인", f"ok:{key}"), ("✖ 취소", f"no:{key}")]]
+    if PANEL_URL:
+        rows.append([("🔎 내용 보기 (제어판)", f"{PANEL_URL}#{key}")])
+    return rows
 
 
 def _check_tg(password: str, key: str, ts: str, mac: str) -> bool:
