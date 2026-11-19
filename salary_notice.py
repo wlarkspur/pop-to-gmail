@@ -136,11 +136,12 @@ def _send_company(m: dict, test: bool = False):
 
 
 def smtp_connect():
-    """회사 메일 서버에 로그인한 SMTP 연결. GitHub 실행 서버는 25번 포트가 막혀 있어서(2026-11 확인)
-    587(STARTTLS) -> 465(SSL) -> 25 순서로 시도. 인증서 검증은 끄지 않음."""
+    """회사 메일 서버에 로그인한 SMTP 연결. Outlook 설정과 같은 25번이 기본인데, GitHub 실행 서버에서는
+    25번이 가끔 응답 없이 끊김(2026-11-19 확인) - 25를 두 번 시도하고 587(STARTTLS), 465(SSL)도 시도.
+    465는 회사 서버 인증서 체인이 불완전해서 검증 실패하는데, 인증서 검증은 끄지 않음."""
     import ssl
     host = os.environ.get("SMTP_HOST", "mail.youngsan.com")
-    ports = [int(p) for p in os.environ.get("SMTP_PORTS", "587,465,25").split(",")]
+    ports = [int(p) for p in os.environ.get("SMTP_PORTS", "25,25,587,465").split(",")]
     ctx = ssl.create_default_context()
     errors = []
     for port in ports:

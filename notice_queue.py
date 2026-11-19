@@ -94,6 +94,32 @@ def _check_tg(password: str, key: str, ts: str, mac: str) -> bool:
     return hmac.compare_digest(want, (mac or "").lower())
 
 
+RETRY_MAX = 6  # 연결 오류면 5분 간격(시계)으로 최대 6번 자동 재시도 = 약 30분
+
+
+def _deliver(n: dict) -> str:
+    """승인된 진짜 항목 발송. 보낸 통은 sent_idx에 기록해서 다시 시도해도 중복 발송 없음.
+    서버 연결 오류(일시적)면 상태를 retry로 두고 다음 실행 때 자동으로 다시 보냄 (비밀번호 다시 안 물음)."""
+    import salary_notice
+    sent = n.setdefault("sent_idx", [])
+    try:
+        for i, m in enumerate(n["mails"]):
+            if i in sent:
+                continue
+            salary_notice._send_company(m)
+            sent.append(i)
+        n["status"] = "sent"
+        return f"{len(n['mails'])}통 발송 완료 (본인 회사 주소)" + (f" - 자동 재시도 {n['retries']}번째에 성공" if n.get("retries") else "")
+    except Exception as e:  # noqa: BLE001
+        n["retries"] = n.get("retries", 0) + 1
+        part = f"{len(sent)}/{len(n['mails'])}통 보낸 뒤"
+        if n["retries"] < RETRY_MAX:
+            n["status"] = "retry"
+            return f"발송 중 오류 ({part}): {e} - 5분 뒤 자동 재시도 ({n['retries']}/{RETRY_MAX - 1})"
+        n["status"] = "error"
+        return f"발송 중 오류 ({part}): {e} - 자동 재시도 끝, 다시 승인하면 안 보낸 통만 보냄"
+
+
 def process() -> str:
     import salary_notice
     s = fx_job.drive()
@@ -119,6 +145,19 @@ def process() -> str:
                 changed = True
         except ValueError:
             pass
+    for n in q["notices"]:
+        if n.get("status") != "retry":
+            continue
+        if cancels.get(n["key"], 0) > int(n.get("retry_since", 0)):
+            n["status"] = "pending"
+            n["history"].append(f"{_now()} 자동 재시도 중 승인 취소 - 발송 멈춤")
+            changed = True
+            continue
+        msg = _deliver(n)
+        if n["status"] != "retry" or n["retries"] in (2, 4):  # 성공, 최종 실패, 중간 경과만 기록, 알림
+            n["history"].append(f"{_now()} {msg}")
+            done.append((n, msg))
+        changed = True
     confirms = []  # (처리 id, 승인 내용 dict | None, 파일 id | None)
     for f in _list_confirms(s):
         if f["id"] in q["processed"]:
@@ -167,17 +206,11 @@ def process() -> str:
                 n["status"], msg = "test_ok", f"테스트: 비밀번호 확인, {len(n['mails'])}통을 본인(본인 회사 주소)에게만 발송"
             except Exception as e:  # noqa: BLE001
                 n["status"], msg = "error", f"테스트 발송 중 오류: {e}"
-        else:  # 보낸 통은 기록해 두고, 오류 뒤 다시 승인하면 안 보낸 통만 보냄 (중복 발송 방지)
-            sent = n.setdefault("sent_idx", [])
-            try:
-                for i, m in enumerate(n["mails"]):
-                    if i in sent:
-                        continue
-                    salary_notice._send_company(m)
-                    sent.append(i)
-                n["status"], msg = "sent", f"{len(n['mails'])}통 발송 완료 (본인 회사 주소)"
-            except Exception as e:  # noqa: BLE001
-                n["status"], msg = "error", f"발송 중 오류 ({len(sent)}/{len(n['mails'])}통 보낸 뒤): {e} - 다시 승인하면 안 보낸 통만 보냄"
+        else:
+            n["retries"] = 0
+            import time
+            n["retry_since"] = int(time.time() * 1000)
+            msg = _deliver(n)
         n["history"].append(f"{_now()} {msg}")
         done.append((n, msg))
     save(s, q, changed)  # 확인 시각은 매번, 변경 시각은 실제로 바뀐 때만

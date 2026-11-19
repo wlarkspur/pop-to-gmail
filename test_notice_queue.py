@@ -189,11 +189,28 @@ q = {"notices": [{"key": "salary-20261110", "title": "x", "created": "-", "statu
                   "summary": [], "mails": copy.deepcopy(MAILS), "history": []}], "processed": []}
 drive = FakeDrive(q, {"c1": confirm("salary-20261110", "pw-정답")}, []); fx_job.drive = lambda: drive; nq.process()
 n0 = drive.queue["notices"][0]
-assert n0["status"] == "error" and n0["sent_idx"] == [0] and len([x for x in SMTP_LOG if x[0] == "send"]) == 1
+assert n0["status"] == "retry" and n0["sent_idx"] == [0] and len([x for x in SMTP_LOG if x[0] == "send"]) == 1
 SMTP_LOG.clear()
-drive2 = FakeDrive(drive.queue, {"c2": confirm("salary-20261110", "pw-정답")}, []); fx_job.drive = lambda: drive2; nq.process()
+drive2 = FakeDrive(drive.queue, {}, []); fx_job.drive = lambda: drive2; nq.process()  # 새 승인 없이 다음 실행
 n1 = drive2.queue["notices"][0]
 assert n1["status"] == "sent" and n1["sent_idx"] == [0, 1, 2] and len([x for x in SMTP_LOG if x[0] == "send"]) == 2
-print("발송 중 끊김: 1통 보낸 뒤 오류 -> 다시 승인하면 나머지 2통만 발송 (중복 없음)")
+print("발송 중 끊김: 1통 보낸 뒤 오류 -> 다음 실행 때 자동 재시도로 나머지 2통만 발송 (중복 없음)")
+# 재시도 대기 중 취소하면 멈춤
+calls["n"] = 0
+_sn._send_company = lambda m, test=False: (_ for _ in ()).throw(TimeoutError("timed out"))
+SMTP_LOG.clear()
+q = {"notices": [{"key": "salary-20261110", "title": "x", "created": "-", "status": "pending", "test": False,
+                  "summary": [], "mails": copy.deepcopy(MAILS), "history": []}], "processed": []}
+drive3 = FakeDrive(q, {"c1": confirm("salary-20261110", "pw-정답")}, []); fx_job.drive = lambda: drive3; nq.process()
+assert drive3.queue["notices"][0]["status"] == "retry"
+import time as _t
+drive4 = FakeDrive(drive3.queue, {}, [f"cancel_salary-20261110_{int(_t.time()*1000)+5000}.json"]); fx_job.drive = lambda: drive4; nq.process()
+assert drive4.queue["notices"][0]["status"] == "pending"
+# 계속 실패하면 6번째에 error로 끝
+q5 = copy.deepcopy(drive3.queue)
+for _ in range(10):
+    d = FakeDrive(q5, {}, []); fx_job.drive = lambda: d; nq.process(); q5 = d.queue
+assert q5["notices"][0]["status"] == "error" and q5["notices"][0]["retries"] == nq.RETRY_MAX
+print("재시도 중 취소하면 멈춤, 계속 실패하면 약 30분 뒤 error로 끝")
 _sn._send_company = _orig
 print("모든 검증 통과: 테스트는 본인 주소로만, 틀린 비밀번호는 서버 접속 없음, 진짜 항목만 원래 수신자에게")
