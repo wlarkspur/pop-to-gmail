@@ -58,6 +58,6 @@ if __name__ == "__main__":
     if len(sys.argv) >= 2 and sys.argv[1] == "--fail":
         job = sys.argv[2] if len(sys.argv) > 2 else "작업"
         url = sys.argv[3] if len(sys.argv) > 3 else ""
-        send(f"⚠️ 실패: {job}\n{url}")
+        send(f"⚠️ 실패: {job}\n{url}\n(Claude 자동 점검이 다음 정각 무렵 확인해서 고치고 결과를 보고해요)")
     elif len(sys.argv) >= 2:
         send(" ".join(sys.argv[1:]))

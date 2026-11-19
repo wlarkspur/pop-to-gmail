@@ -1,0 +1,27 @@
+name: 텔레그램 보고 (자동 점검 세션이 사용)
+
+on:
+  workflow_dispatch:
+    inputs:
+      text:
+        description: "보낼 내용 (공개 저장소라 실행 기록에 남음 - 민감 정보 금지)"
+        required: true
+
+permissions:
+  contents: read
+
+jobs:
+  notify:
+    runs-on: ubuntu-latest
+    timeout-minutes: 3
+    env:
+      TG_TOKEN: ${{ secrets.TG_TOKEN }}
+      TG_CHAT_ID: ${{ secrets.TG_CHAT_ID }}
+      TEXT: ${{ github.event.inputs.text }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+      - run: pip install -q requests==2.32.3
+      - run: python3 -c "import os,sys,tg; sys.exit(0 if tg.send(os.environ['TEXT']) else 1)"
