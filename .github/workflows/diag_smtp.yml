@@ -1,0 +1,32 @@
+name: 진단 - 회사 메일 서버 연결
+
+on:
+  workflow_dispatch: {}
+
+permissions:
+  contents: read
+
+jobs:
+  diag:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - run: |
+          python3 - <<'PY'
+          import socket, time, smtplib
+          host = "mail.youngsan.com"
+          print("IP", socket.gethostbyname(host))
+          for port in (25, 587, 465, 110, 995):
+              for i in range(2):
+                  t = time.time()
+                  try:
+                      socket.create_connection((host, port), timeout=15).close(); r = "연결됨"
+                  except Exception as e:
+                      r = f"실패 {type(e).__name__} {e}"
+                  print(port, i, r, f"{time.time()-t:.1f}s")
+          try:
+              with smtplib.SMTP(host, 25, timeout=30) as s:
+                  print("EHLO", s.ehlo()[0], "STARTTLS", s.has_extn("starttls"))
+          except Exception as e:
+              print("SMTP25 실패", type(e).__name__, e)
+          PY
