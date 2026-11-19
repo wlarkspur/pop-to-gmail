@@ -136,30 +136,20 @@ def _send_company(m: dict, test: bool = False):
 
 
 def smtp_connect():
-    """회사 메일 서버에 로그인한 SMTP 연결. Outlook 설정과 같은 25번이 기본인데, GitHub 실행 서버에서는
-    25번이 가끔 응답 없이 끊김(2026-11-19 확인) - 25를 두 번 시도하고 587(STARTTLS), 465(SSL)도 시도.
-    465는 회사 서버 인증서 체인이 불완전해서 검증 실패하는데, 인증서 검증은 끄지 않음."""
+    """회사 메일 서버(25번 포트, Outlook 설정과 같음)에 로그인한 SMTP 연결.
+    GitHub 실행 서버 중 Amazon(AWS)에서 뜨는 서버는 25번 포트 밖으로 나가는 연결을 막아서 시간 초과가 남
+    (2026-11-19 확인: 8대 중 Microsoft 7대 성공, AWS 1대 실패). 그런 서버에 걸리면 빨리 실패하고
+    notice_queue가 다음 실행(다른 서버)에서 자동 재시도함."""
     import ssl
     host = os.environ.get("SMTP_HOST", "mail.youngsan.com")
-    ports = [int(p) for p in os.environ.get("SMTP_PORTS", "25,25,587,465").split(",")]
-    ctx = ssl.create_default_context()
-    errors = []
-    for port in ports:
-        try:
-            if port == 465:
-                s = smtplib.SMTP_SSL(host, port, timeout=30, context=ctx)
-                s.ehlo()
-            else:
-                s = smtplib.SMTP(host, port, timeout=30)
-                s.ehlo()
-                if s.has_extn("starttls"):
-                    s.starttls(context=ctx)
-                    s.ehlo()
-                elif port == 587:
-                    s.quit()
-                    raise RuntimeError("587인데 STARTTLS 없음")
-            s.login(os.environ["POP_USER"], os.environ["POP_PASS"])
-            return s
-        except (OSError, smtplib.SMTPException, RuntimeError) as e:
-            errors.append(f"{port}: {type(e).__name__} {e}")
-    raise RuntimeError("회사 메일 서버 연결 실패 - " + " / ".join(errors))
+    try:
+        s = smtplib.SMTP(host, 25, timeout=20)
+    except OSError as e:
+        raise RuntimeError(f"회사 메일 서버 25번 포트 연결 안 됨({type(e).__name__}) - "
+                           f"실행 서버가 25번을 막는 곳(AWS)일 가능성이 큼") from e
+    s.ehlo()
+    if s.has_extn("starttls"):
+        s.starttls(context=ssl.create_default_context())
+        s.ehlo()
+    s.login(os.environ["POP_USER"], os.environ["POP_PASS"])
+    return s

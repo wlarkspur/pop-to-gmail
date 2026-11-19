@@ -208,9 +208,9 @@ drive4 = FakeDrive(drive3.queue, {}, [f"cancel_salary-20261110_{int(_t.time()*10
 assert drive4.queue["notices"][0]["status"] == "pending"
 # 계속 실패하면 6번째에 error로 끝
 q5 = copy.deepcopy(drive3.queue)
-for _ in range(10):
+for _ in range(20):
     d = FakeDrive(q5, {}, []); fx_job.drive = lambda: d; nq.process(); q5 = d.queue
 assert q5["notices"][0]["status"] == "error" and q5["notices"][0]["retries"] == nq.RETRY_MAX
-print("재시도 중 취소하면 멈춤, 계속 실패하면 약 30분 뒤 error로 끝")
+print("재시도 중 취소하면 멈춤, 계속 실패하면 약 1시간 뒤 error로 끝")
 _sn._send_company = _orig
 print("모든 검증 통과: 테스트는 본인 주소로만, 틀린 비밀번호는 서버 접속 없음, 진짜 항목만 원래 수신자에게")

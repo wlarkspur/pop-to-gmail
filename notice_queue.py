@@ -94,7 +94,7 @@ def _check_tg(password: str, key: str, ts: str, mac: str) -> bool:
     return hmac.compare_digest(want, (mac or "").lower())
 
 
-RETRY_MAX = 6  # 연결 오류면 5분 간격(시계)으로 최대 6번 자동 재시도 = 약 30분
+RETRY_MAX = 13  # 연결 오류면 5분 간격(시계)으로 최대 12번 자동 재시도 = 약 1시간 (실행할 때마다 다른 서버가 걸림)
 
 
 def _deliver(n: dict) -> str:
@@ -115,7 +115,7 @@ def _deliver(n: dict) -> str:
         part = f"{len(sent)}/{len(n['mails'])}통 보낸 뒤"
         if n["retries"] < RETRY_MAX:
             n["status"] = "retry"
-            return f"발송 중 오류 ({part}): {e} - 5분 뒤 자동 재시도 ({n['retries']}/{RETRY_MAX - 1})"
+            return f"발송 중 오류 ({part}): {e} - 5분 뒤 다른 실행 서버로 자동 재시도 ({n['retries']}/{RETRY_MAX - 1})"
         n["status"] = "error"
         return f"발송 중 오류 ({part}): {e} - 자동 재시도 끝, 다시 승인하면 안 보낸 통만 보냄"
 
@@ -154,7 +154,7 @@ def process() -> str:
             changed = True
             continue
         msg = _deliver(n)
-        if n["status"] != "retry" or n["retries"] in (2, 4):  # 성공, 최종 실패, 중간 경과만 기록, 알림
+        if n["status"] != "retry" or n["retries"] in (3, 6, 9):  # 성공, 최종 실패, 중간 경과만 기록, 알림
             n["history"].append(f"{_now()} {msg}")
             done.append((n, msg))
         changed = True
